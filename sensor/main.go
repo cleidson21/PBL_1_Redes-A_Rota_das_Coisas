@@ -9,7 +9,7 @@ import (
 
 func main() {
 	// Endereço do Integrador (localhost por enquanto, depois será o IP do container)
-	servidorAddr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:8080")
+	servidorAddr, _ := net.ResolveUDPAddr("udp", "integrador:8080")
 	conn, _ := net.DialUDP("udp", nil, servidorAddr)
 	defer conn.Close()
 

@@ -1,0 +1,14 @@
+services:
+  integrador:
+    build: ./integrador
+    container_name: integrador_pbl
+    ports:
+      - "8080:8080/udp" # Mapeia a porta do PC para o container
+
+  sensor:
+    build: ./sensor
+    container_name: sensor_pbl
+    depends_on:
+      - integrador
+    environment:
+      - SERVER_ADDR=integrador:8080 # O sensor usará o nome do serviço
