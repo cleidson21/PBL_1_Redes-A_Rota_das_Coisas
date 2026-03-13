@@ -1,14 +1,16 @@
 services:
   integrador:
-    build: ./integrador
+    image: cleidsonramos/integrador:v2 # Agora usa sua imagem do Docker Hub
     container_name: integrador_pbl
     ports:
-      - "8080:8080/udp" # Mapeia a porta do PC para o container
+      - "8080:8080/udp"
+    restart: always
 
   sensor:
-    build: ./sensor
+    image: cleidsonramos/sensor:v2 # Agora usa sua imagem do Docker Hub
     container_name: sensor_pbl
     depends_on:
       - integrador
     environment:
-      - SERVER_ADDR=integrador:8080 # O sensor usará o nome do serviço
+      - SERVER_ADDR=integrador:8080 # No Docker Compose, usamos o nome do serviço
+    restart: always

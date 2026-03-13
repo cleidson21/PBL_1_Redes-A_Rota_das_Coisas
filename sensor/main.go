@@ -4,16 +4,32 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 )
 
 func main() {
-	// Endereço do Integrador (localhost por enquanto, depois será o IP do container)
-	servidorAddr, _ := net.ResolveUDPAddr("udp", "integrador:8080")
-	conn, _ := net.DialUDP("udp", nil, servidorAddr)
+	// Tenta ler o endereço do integrador da variável de ambiente SERVER_ADDR
+	// Se não existir (vazio), usa "localhost:8080" como padrão para testes locais
+	addrEnv := os.Getenv("SERVER_ADDR")
+	if addrEnv == "" {
+		addrEnv = "localhost:8080"
+	}
+
+	servidorAddr, err := net.ResolveUDPAddr("udp", addrEnv)
+	if err != nil {
+		fmt.Printf("Erro ao resolver endereço: %v\n", err)
+		return
+	}
+
+	conn, err := net.DialUDP("udp", nil, servidorAddr)
+	if err != nil {
+		fmt.Printf("Erro ao conectar: %v\n", err)
+		return
+	}
 	defer conn.Close()
 
-	fmt.Println("Sensor iniciado... Enviando dados via UDP.")
+	fmt.Printf("Sensor iniciado... Enviando dados para %s via UDP.\n", addrEnv)
 
 	for {
 		// Gera valor aleatório entre 20.0 e 40.0
@@ -21,11 +37,14 @@ func main() {
 		mensagem := fmt.Sprintf("%.2f", valor)
 
 		fmt.Printf("Enviando temperatura: %s°C\n", mensagem)
-		
-		// Envia para o Integrador
-		conn.Write([]byte(mensagem))
 
-		// Aguarda 2 segundos para a próxima leitura
-		time.Sleep(2 * time.Second)
+		// Envia para o Integrador
+		_, err := conn.Write([]byte(mensagem))
+		if err != nil {
+			fmt.Printf("Erro ao enviar dado: %v\n", err)
+		}
+
+		// Aguarda 1 segundo para a próxima leitura
+		time.Sleep(1 * time.Second)
 	}
 }
