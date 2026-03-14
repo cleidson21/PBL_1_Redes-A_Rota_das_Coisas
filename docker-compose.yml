@@ -1,6 +1,7 @@
 services:
   atuador:
     build: ./atuador
+    #image: cleidsonramos/atuador:v1 
     container_name: atuador_pbl
     ports:
       - "8081:8081/tcp"
@@ -8,6 +9,7 @@ services:
 
   integrador:
     build: ./integrador
+    #image: cleidsonramos/integrador:v3
     container_name: integrador_pbl
     ports:
       - "8080:8080/udp"
@@ -20,6 +22,7 @@ services:
 
   sensor:
     build: ./sensor
+    #image: cleidsonramos/sensor:v3
     container_name: sensor_pbl
     depends_on:
       - integrador
@@ -29,6 +32,7 @@ services:
     
   cliente:
     build: ./cliente
+    #image: cleidsonramos/cliente:v1
     container_name: cliente_pbl
     depends_on:
       - integrador
