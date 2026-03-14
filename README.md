@@ -29,22 +29,22 @@ O repositorio esta dividido em 4 componentes principais:
 
 ```mermaid
 flowchart LR
-    S[Sensor (UDP 8080)] --> I[Integrador]
-    C[Cliente / Painel (TCP 8082)] --> I
-        I -- TCP 8081 --> A[Atuador]
-        I --> L[(Logs)]
+    S[Sensor UDP 8080] --> I[Integrador]
+    C[Cliente Painel TCP 8082] --> I
+    I -- TCP 8081 --> A[Atuador]
+    I --> L[Logs]
 ```
 
 ### Fluxo local (docker compose)
 
 ```mermaid
 flowchart TD
-        A[docker compose up -d] --> B[Servicos sobem]
-        B --> C[Sensor envia temperatura]
-        C --> D[Integrador processa estado]
-        D --> E[Integrador envia comando ao Atuador]
-        F[Cliente/Painel] --> D
-        D --> G[Observacao via docker logs]
+    A[docker compose up -d] --> B[Servicos sobem]
+    B --> C[Sensor envia temperatura]
+    C --> D[Integrador processa estado]
+    D --> E[Integrador envia comando ao Atuador]
+    F[Cliente Painel] --> D
+    D --> G[Observacao via docker logs]
 ```
 
 ## Servicos e Portas
