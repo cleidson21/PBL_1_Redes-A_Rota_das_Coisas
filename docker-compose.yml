@@ -26,3 +26,13 @@ services:
     environment:
       - SERVER_ADDR=integrador:8080
     restart: always
+    
+  cliente:
+    build: ./cliente
+    container_name: cliente_pbl
+    depends_on:
+      - integrador
+    environment:
+      - INTEGRADOR_ADDR=integrador:8082
+    stdin_open: true # Mantém o stdin aberto para interação
+    tty: true        # Mantém o terminal aberto para interação
