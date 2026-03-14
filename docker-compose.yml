@@ -11,6 +11,7 @@ services:
     container_name: integrador_pbl
     ports:
       - "8080:8080/udp"
+      - "8082:8082/tcp"
     depends_on:
       - atuador
     environment:
