@@ -9,8 +9,6 @@ import (
 )
 
 func main() {
-	// Tenta ler o endereço do integrador da variável de ambiente SERVER_ADDR
-	// Se não existir (vazio), usa "localhost:8080" como padrão para testes locais
 	addrEnv := os.Getenv("SERVER_ADDR")
 	if addrEnv == "" {
 		addrEnv = "localhost:8080"
@@ -29,22 +27,33 @@ func main() {
 	}
 	defer conn.Close()
 
-	fmt.Printf("Sensor iniciado... Enviando dados para %s via UDP.\n", addrEnv)
+	fmt.Printf("Sensor de Temperatura iniciado. Enviando para %s via UDP.\n", addrEnv)
+
+	// Define uma temperatura inicial realista
+	temperaturaAtual := 25.0
 
 	for {
-		// Gera valor aleatório entre 20.0 e 40.0
-		valor := 20.0 + rand.Float64()*(40.0-20.0)
-		mensagem := fmt.Sprintf("%.2f", valor)
+		// Varia a temperatura suavemente entre -0.5 e +0.5 graus
+		variacao := (rand.Float64() * 1.0) - 0.5
+		temperaturaAtual += variacao
 
-		fmt.Printf("Enviando temperatura: %s°C\n", mensagem)
-
-		// Envia para o Integrador
-		_, err := conn.Write([]byte(mensagem))
-		if err != nil {
-			fmt.Printf("Erro ao enviar dado: %v\n", err)
+		// Cria limites para não congelar nem pegar fogo (ex: entre 18°C e 35°C)
+		if temperaturaAtual < 18.0 {
+			temperaturaAtual = 18.0
+		} else if temperaturaAtual > 35.0 {
+			temperaturaAtual = 35.0
 		}
 
-		// Aguarda 1 segundo para a próxima leitura
-		time.Sleep(1 * time.Second)
+		mensagem := fmt.Sprintf("%.2f", temperaturaAtual)
+		fmt.Printf("Enviando telemetria: %s°C\n", mensagem)
+
+		// Envia o pacote UDP
+		_, err := conn.Write([]byte(mensagem))
+		if err != nil {
+			fmt.Printf("Erro de rede: %v\n", err)
+		}
+
+		// Envio contínuo (a cada 500ms para simular alto volume de telemetria)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
