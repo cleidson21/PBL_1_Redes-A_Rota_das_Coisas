@@ -11,7 +11,7 @@ O sistema atual usa **Go + UDP/TCP + Docker** e agora inclui controle automatico
 - [Estrutura do Projeto](#estrutura-do-projeto)
 - [Como Executar](#como-executar)
 - [Cenario 1: Ambiente Local com Docker Compose](#cenario-1-ambiente-local-com-docker-compose)
-- [Cenario 2: Rede Real com Duas Maquinas](#cenario-2-rede-real-com-duas-maquinas)
+- [Cenario 2: Rede Real com Tres Maquinas](#cenario-2-rede-real-com-tres-maquinas)
 - [Comandos do Painel (Cliente)](#comandos-do-painel-cliente)
 - [Comandos de Manutencao Docker](#comandos-de-manutencao-docker)
 - [Fluxo de Desenvolvimento](#fluxo-de-desenvolvimento)
@@ -82,7 +82,7 @@ flowchart TD
 Voce pode validar o projeto de duas formas:
 
 1. `docker compose` (todos os servicos na mesma maquina).
-2. Rede real com maquinas separadas (integrador/atuador em um host e sensor/painel em outro).
+2. Rede real com maquinas separadas (sensor+atuador em um host, integrador em outro e cliente em outro).
 
 ## Cenario 1: Ambiente Local com Docker Compose
 
@@ -123,11 +123,11 @@ Para sair do `attach` sem derrubar o container, use `Ctrl+P` seguido de `Ctrl+Q`
 docker compose down
 ```
 
-## Cenario 2: Rede Real com Duas Maquinas
+## Cenario 2: Rede Real com Tres Maquinas
 
-Simula laboratorio/LAN/Wi-Fi com servicos distribuidos.
+Simula laboratorio/LAN/Wi-Fi com servicos distribuidos em 3 hosts.
 
-### PC 1: Integrador + Atuador
+### PC 1: Sensor + Atuador
 
 1. Inicie o atuador (TCP `8081`):
 
@@ -135,17 +135,7 @@ Simula laboratorio/LAN/Wi-Fi com servicos distribuidos.
 docker run -d --name atuador_pbl -p 8081:8081/tcp cleidsonramos/atuador:v1
 ```
 
-2. Inicie o integrador (UDP `8080` + TCP `8082`) apontando para o atuador:
-
-```bash
-docker run -d --name integrador_pbl \
-    -p 8080:8080/udp \
-    -p 8082:8082/tcp \
-    -e ATUADOR_ADDR="<IP_DO_PC1>:8081" \
-    cleidsonramos/integrador:v3
-```
-
-3. Descubra o IP do PC 1:
+2. Descubra o IP do PC 1 (sera usado no integrador):
 
 ```bash
 # Linux
@@ -155,29 +145,56 @@ hostname -I
 ipconfig
 ```
 
-4. (Opcional, recomendado) Libere firewall:
+3. Inicie o sensor apontando para o integrador (PC 2):
+
+```bash
+docker run -d --name sensor_pbl \
+    -e SERVER_ADDR="<IP_DO_PC2>:8080" \
+    cleidsonramos/sensor:v3
+```
+
+### PC 2: Integrador
+
+1. Inicie o integrador (UDP `8080` + TCP `8082`) apontando para o atuador no PC 1:
+
+```bash
+docker run -d --name integrador_pbl \
+    -p 8080:8080/udp \
+    -p 8082:8082/tcp \
+    -e ATUADOR_ADDR="<IP_DO_PC1>:8081" \
+    cleidsonramos/integrador:v3
+```
+
+2. Descubra o IP do PC 2 (sera usado no sensor e no cliente):
+
+```bash
+# Linux
+hostname -I
+
+# Windows (PowerShell/CMD)
+ipconfig
+```
+
+3. (Opcional, recomendado) Libere firewall no PC 2:
 
 ```bash
 sudo ufw allow 8080/udp
 sudo ufw allow 8082/tcp
+```
+
+4. (Opcional, recomendado) Libere firewall no PC 1:
+
+```bash
 sudo ufw allow 8081/tcp
 ```
 
-### PC 2: Sensor + Painel (Cliente)
+### PC 3: Painel (Cliente)
 
-1. Inicie o sensor apontando para o integrador:
-
-```bash
-docker run -d --name sensor_pbl \
-    -e SERVER_ADDR="<IP_DO_PC1>:8080" \
-    cleidsonramos/sensor:v3
-```
-
-2. Inicie o cliente/painel apontando para o integrador:
+1. Inicie o cliente/painel apontando para o integrador (PC 2):
 
 ```bash
 docker run -it --name cliente_pbl \
-    -e INTEGRADOR_ADDR="<IP_DO_PC1>:8082" \
+    -e INTEGRADOR_ADDR="<IP_DO_PC2>:8082" \
     cleidsonramos/cliente:v1
 ```
 
@@ -186,8 +203,14 @@ docker run -it --name cliente_pbl \
 No PC 1:
 
 ```bash
-docker logs -f integrador_pbl
+docker logs -f sensor_pbl
 docker logs -f atuador_pbl
+```
+
+No PC 2:
+
+```bash
+docker logs -f integrador_pbl
 ```
 
 ## Comandos do Painel (Cliente)
