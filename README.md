@@ -1,44 +1,61 @@
 # PBL 1 - Redes: A Rota das Coisas
 
-Projeto da disciplina de **Conectividade e Concorrencia** para reduzir alto acoplamento em sistemas IoT.
-O sistema usa **Go + UDP + Docker** para simular a comunicacao entre sensores e um integrador central.
+Projeto da disciplina de **Conectividade e Concorrencia** com foco em desacoplamento de um ecossistema IoT.
+O sistema atual usa **Go + UDP/TCP + Docker** e agora inclui controle automatico/manual do ar-condicionado via painel.
 
 ## Topicos
 
 - [Visao Geral](#visao-geral)
-- [Arquitetura](#arquitetura)
+- [Arquitetura Atual](#arquitetura-atual)
+- [Servicos e Portas](#servicos-e-portas)
 - [Estrutura do Projeto](#estrutura-do-projeto)
 - [Como Executar](#como-executar)
-- [Cenario 1: Teste Local com Docker Compose](#cenario-1-teste-local-com-docker-compose)
+- [Cenario 1: Ambiente Local com Docker Compose](#cenario-1-ambiente-local-com-docker-compose)
 - [Cenario 2: Rede Real com Duas Maquinas](#cenario-2-rede-real-com-duas-maquinas)
+- [Comandos do Painel (Cliente)](#comandos-do-painel-cliente)
 - [Comandos de Manutencao Docker](#comandos-de-manutencao-docker)
 - [Fluxo de Desenvolvimento](#fluxo-de-desenvolvimento)
 
 ## Visao Geral
 
-Este repositorio contem componentes IoT separados em servicos:
+O repositorio esta dividido em 4 componentes principais:
 
-- `sensor`: gera e envia dados via UDP
-- `integrador`: recebe os dados e centraliza o processamento
-- `cliente` e `atuador`: modulos de apoio para evolucao do ecossistema
+- `sensor`: gera telemetria de temperatura e envia via UDP.
+- `integrador`: recebe telemetria, aplica regras de controle e orquestra o sistema.
+- `atuador`: recebe comandos TCP (`LIGAR`, `DESLIGAR`, `SET_TEMP`) e simula o ar-condicionado.
+- `cliente` (painel): interface em terminal para monitoramento e comandos manuais/automaticos.
 
-## Arquitetura
+## Arquitetura Atual
 
 ```mermaid
 flowchart LR
-    S[Sensor] -- UDP --> I[Integrador]
-    I --> L[(Logs)]
+    S[Sensor (UDP 8080)] --> I[Integrador]
+    C[Cliente / Painel (TCP 8082)] --> I
+        I -- TCP 8081 --> A[Atuador]
+        I --> L[(Logs)]
 ```
 
-### Fluxo de execucao (local)
+### Fluxo local (docker compose)
 
 ```mermaid
 flowchart TD
-    A[docker compose up -d] --> B[Containers sobem]
-    B --> C[Sensor envia dados]
-    C --> D[Integrador recebe via UDP]
-    D --> E[Monitoramento via docker logs]
+        A[docker compose up -d] --> B[Servicos sobem]
+        B --> C[Sensor envia temperatura]
+        C --> D[Integrador processa estado]
+        D --> E[Integrador envia comando ao Atuador]
+        F[Cliente/Painel] --> D
+        D --> G[Observacao via docker logs]
 ```
+
+## Servicos e Portas
+
+| Servico | Protocolo | Porta | Funcao |
+|---|---|---:|---|
+| `sensor` | UDP (saida) | `8080` (destino no integrador) | Envio continuo de telemetria |
+| `integrador` | UDP (entrada) | `8080/udp` | Receber temperatura do sensor |
+| `integrador` | TCP (entrada) | `8082/tcp` | Receber comandos do painel/cliente |
+| `atuador` | TCP (entrada) | `8081/tcp` | Executar comandos de refrigeracao |
+| `cliente` | TCP (saida) | `8082` (destino no integrador) | Painel interativo de controle |
 
 ## Estrutura do Projeto
 
@@ -47,25 +64,27 @@ flowchart TD
 ├── docker-compose.yml
 ├── README.md
 ├── atuador/
+│   ├── Dockerfile
+│   └── main.go
 ├── cliente/
+│   ├── Dockerfile
+│   └── main.go
 ├── integrador/
 │   ├── Dockerfile
 │   └── main.go
 └── sensor/
-    ├── Dockerfile
-    └── main.go
+        ├── Dockerfile
+        └── main.go
 ```
 
 ## Como Executar
 
-Voce pode testar de duas formas:
+Voce pode validar o projeto de duas formas:
 
-1. **Cenario local** com `docker compose` na mesma maquina.
-2. **Cenario em rede real** com integrador e sensor em maquinas diferentes.
+1. `docker compose` (todos os servicos na mesma maquina).
+2. Rede real com maquinas separadas (integrador/atuador em um host e sensor/painel em outro).
 
-## Cenario 1: Teste Local com Docker Compose
-
-Ideal para desenvolvimento rapido na mesma maquina.
+## Cenario 1: Ambiente Local com Docker Compose
 
 ### 1) Clonar o repositorio
 
@@ -77,17 +96,28 @@ cd PBL_1_Redes-A_Rota_das_Coisas
 ### 2) Subir os containers
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-### 3) Acompanhar logs
+### 3) Acompanhar logs principais
 
 ```bash
 docker logs -f integrador_pbl
 docker logs -f sensor_pbl
+docker logs -f atuador_pbl
 ```
 
-### 4) Parar e remover ambiente
+### 4) Abrir o painel (cliente)
+
+Como o `cliente` e interativo, use `attach` para operar o menu:
+
+```bash
+docker attach cliente_pbl
+```
+
+Para sair do `attach` sem derrubar o container, use `Ctrl+P` seguido de `Ctrl+Q`.
+
+### 5) Parar e remover ambiente
 
 ```bash
 docker compose down
@@ -95,57 +125,84 @@ docker compose down
 
 ## Cenario 2: Rede Real com Duas Maquinas
 
-Simula um ambiente real em rede (laboratorio, LAN ou Wi-Fi).
+Simula laboratorio/LAN/Wi-Fi com servicos distribuidos.
 
-### PC 1: Integrador
+### PC 1: Integrador + Atuador
 
-1. Inicie o integrador expondo a porta UDP `8080`:
+1. Inicie o atuador (TCP `8081`):
 
 ```bash
-docker run -d --name integrador_pbl -p 8080:8080/udp cleidsonramos/integrador:v2
+docker run -d --name atuador_pbl -p 8081:8081/tcp cleidsonramos/atuador:v1
 ```
 
-2. Descubra o IP da maquina:
+2. Inicie o integrador (UDP `8080` + TCP `8082`) apontando para o atuador:
+
+```bash
+docker run -d --name integrador_pbl \
+    -p 8080:8080/udp \
+    -p 8082:8082/tcp \
+    -e ATUADOR_ADDR="<IP_DO_PC1>:8081" \
+    cleidsonramos/integrador:v3
+```
+
+3. Descubra o IP do PC 1:
 
 ```bash
 # Linux
 hostname -I
 
-# Windows (PowerShell ou CMD)
+# Windows (PowerShell/CMD)
 ipconfig
 ```
 
-3. (Opcional, recomendado) Libere firewall:
+4. (Opcional, recomendado) Libere firewall:
 
 ```bash
 sudo ufw allow 8080/udp
+sudo ufw allow 8082/tcp
+sudo ufw allow 8081/tcp
 ```
 
-### PC 2: Sensor
+### PC 2: Sensor + Painel (Cliente)
 
-Inicie o sensor apontando para o IP do integrador:
+1. Inicie o sensor apontando para o integrador:
 
 ```bash
-docker run -d --name sensor_pbl -e SERVER_ADDR="<IP_DO_INTEGRADOR>:8080" cleidsonramos/sensor:v2
+docker run -d --name sensor_pbl \
+    -e SERVER_ADDR="<IP_DO_PC1>:8080" \
+    cleidsonramos/sensor:v3
 ```
 
-Exemplo:
+2. Inicie o cliente/painel apontando para o integrador:
 
 ```bash
-docker run -d --name sensor_pbl -e SERVER_ADDR="172.16.201.2:8080" cleidsonramos/sensor:v2
+docker run -it --name cliente_pbl \
+    -e INTEGRADOR_ADDR="<IP_DO_PC1>:8082" \
+    cleidsonramos/cliente:v1
 ```
 
-### Verificando recebimento no integrador
+### Verificacao
 
 No PC 1:
 
 ```bash
 docker logs -f integrador_pbl
+docker logs -f atuador_pbl
 ```
 
-## Comandos de Manutencao Docker
+## Comandos do Painel (Cliente)
 
-Substitua `<nome>` por `integrador_pbl` ou `sensor_pbl`.
+Menu disponivel no `cliente`:
+
+- `[1]` `STATUS`: mostra temperatura atual, estado do ar, modo e alvo.
+- `[2]` `AUTO`: ativa controle automatico no integrador.
+- `[3]` `MANUAL`: ativa modo manual.
+- `[4]` `LIGAR`: liga ar-condicionado manualmente.
+- `[5]` `DESLIGAR`: desliga ar-condicionado manualmente.
+- `[6]` `SET_ALVO <valor>`: define nova temperatura alvo e reativa modo automatico.
+- `[0]` sair do painel.
+
+## Comandos de Manutencao Docker
 
 ```bash
 # Containers em execucao
@@ -164,13 +221,15 @@ docker restart <nome>
 docker rm -f <nome>
 ```
 
+Exemplos de `<nome>`: `sensor_pbl`, `integrador_pbl`, `atuador_pbl`, `cliente_pbl`.
+
 ## Fluxo de Desenvolvimento
 
-Sempre que alterar codigo Go (`main.go`) ou configuracoes:
+Sempre que alterar codigo Go (`main.go`) ou Dockerfiles:
 
 ### 1) Build e push das imagens (Docker Hub)
 
-Atualize a versao da tag, por exemplo `v2 -> v3`.
+Atualize as tags de versao (`v1`, `v2`, `v3`...).
 
 ```bash
 # Sensor
@@ -180,12 +239,20 @@ docker push cleidsonramos/sensor:v3
 # Integrador
 docker build -t cleidsonramos/integrador:v3 ./integrador
 docker push cleidsonramos/integrador:v3
+
+# Atuador
+docker build -t cleidsonramos/atuador:v1 ./atuador
+docker push cleidsonramos/atuador:v1
+
+# Cliente (Painel)
+docker build -t cleidsonramos/cliente:v1 ./cliente
+docker push cleidsonramos/cliente:v1
 ```
 
 ### 2) Commit e push no GitHub
 
 ```bash
 git add .
-git commit -m "feat: atualiza logica do sensor e documentacao"
+git commit -m "docs: atualiza arquitetura com atuador, cliente e painel"
 git push
 ```
