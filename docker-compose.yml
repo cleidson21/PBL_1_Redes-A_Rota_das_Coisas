@@ -1,20 +1,20 @@
 services:
   atuador:
-    build: cleidsonramos/atuador:v1
+    build: ./atuador
     container_name: atuador_pbl
     ports:
       - "8081:8081/tcp"
     restart: always
 
   integrador:
-    image: cleidsonramos/integrador:v2
+    build: ./integrador
     container_name: integrador_pbl
     ports:
       - "8080:8080/udp"
     restart: always
 
   sensor:
-    image: cleidsonramos/sensor:v2
+    build: ./sensor
     container_name: sensor_pbl
     depends_on:
       - integrador
