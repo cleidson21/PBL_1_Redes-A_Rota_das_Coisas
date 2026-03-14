@@ -127,15 +127,17 @@ docker compose down
 
 Simula laboratorio/LAN/Wi-Fi com servicos distribuidos em 3 hosts.
 
-### PC 1: Sensor + Atuador
+### Ordem de prioridade (recomendado)
 
-1. Inicie o atuador (TCP `8081`):
+1. Descobrir e anotar os IPs necessarios (`PC 1` e `PC 2`).
+2. Subir o `integrador` no `PC 2`.
+3. Subir o `atuador` no `PC 1`.
+4. Subir o `sensor` no `PC 1`.
+5. Subir o painel `cliente` no `PC 3`.
 
-```bash
-docker run -d --name atuador_pbl -p 8081:8081/tcp cleidsonramos/atuador:v1
-```
+### 1) Descobrir IPs antes de subir os containers
 
-2. Descubra o IP do PC 1 (sera usado no integrador):
+No `PC 1` (Sensor + Atuador), anote o IP como `<IP_DO_PC1>`:
 
 ```bash
 # Linux
@@ -145,7 +147,25 @@ hostname -I
 ipconfig
 ```
 
-3. Inicie o sensor apontando para o integrador (PC 2):
+No `PC 2` (Integrador), anote o IP como `<IP_DO_PC2>`:
+
+```bash
+# Linux
+hostname -I
+
+# Windows (PowerShell/CMD)
+ipconfig
+```
+
+### PC 1: Sensor + Atuador
+
+1. Inicie o atuador (TCP `8081`):
+
+```bash
+docker run -d --name atuador_pbl -p 8081:8081/tcp cleidsonramos/atuador:v1
+```
+
+2. Inicie o sensor apontando para o integrador (PC 2):
 
 ```bash
 docker run -d --name sensor_pbl \
@@ -165,24 +185,14 @@ docker run -d --name integrador_pbl \
     cleidsonramos/integrador:v3
 ```
 
-2. Descubra o IP do PC 2 (sera usado no sensor e no cliente):
-
-```bash
-# Linux
-hostname -I
-
-# Windows (PowerShell/CMD)
-ipconfig
-```
-
-3. (Opcional, recomendado) Libere firewall no PC 2:
+2. (Opcional, recomendado) Libere firewall no PC 2:
 
 ```bash
 sudo ufw allow 8080/udp
 sudo ufw allow 8082/tcp
 ```
 
-4. (Opcional, recomendado) Libere firewall no PC 1:
+3. (Opcional, recomendado) Libere firewall no PC 1:
 
 ```bash
 sudo ufw allow 8081/tcp
