@@ -11,6 +11,10 @@ services:
     container_name: integrador_pbl
     ports:
       - "8080:8080/udp"
+    depends_on:
+      - atuador
+    environment:
+      - ATUADOR_ADDR=atuador:8081 
     restart: always
 
   sensor:
