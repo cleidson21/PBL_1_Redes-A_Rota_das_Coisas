@@ -169,7 +169,7 @@ docker run -d --name atuador_pbl -p 8081:8081/tcp cleidsonramos/atuador:v1
 
 ```bash
 docker run -d --name sensor_pbl \
-    -e SERVER_ADDR="<IP_DO_PC2>:8080" \
+    -e SERVER_ADDR="IP_DO_PC2:8080" \
     cleidsonramos/sensor:v3
 ```
 
@@ -181,7 +181,7 @@ docker run -d --name sensor_pbl \
 docker run -d --name integrador_pbl \
     -p 8080:8080/udp \
     -p 8082:8082/tcp \
-    -e ATUADOR_ADDR="<IP_DO_PC1>:8081" \
+    -e ATUADOR_ADDR="IP_DO_PC1:8081" \
     cleidsonramos/integrador:v3
 ```
 
@@ -204,7 +204,7 @@ sudo ufw allow 8081/tcp
 
 ```bash
 docker run -it --name cliente_pbl \
-    -e INTEGRADOR_ADDR="<IP_DO_PC2>:8082" \
+    -e INTEGRADOR_ADDR="IP_DO_PC2:8082" \
     cleidsonramos/cliente:v1
 ```
 
