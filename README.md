@@ -168,9 +168,7 @@ docker run -d --name atuador_pbl -p 8081:8081/tcp cleidsonramos/atuador:v1
 2. Inicie o sensor apontando para o integrador (PC 2):
 
 ```bash
-docker run -d --name sensor_pbl \
-    -e SERVER_ADDR="<IP_DO_PC2>:8080" \
-    cleidsonramos/sensor:v3
+docker run -d --name sensor_pbl -e SERVER_ADDR="<IP_DO_PC2>:8080" cleidsonramos/sensor:v3
 ```
 
 ### PC 2: Integrador
@@ -178,11 +176,7 @@ docker run -d --name sensor_pbl \
 1. Inicie o integrador (UDP `8080` + TCP `8082`) apontando para o atuador no PC 1:
 
 ```bash
-docker run -d --name integrador_pbl \
-    -p 8080:8080/udp \
-    -p 8082:8082/tcp \
-    -e ATUADOR_ADDR="<IP_DO_PC1>:8081" \
-    cleidsonramos/integrador:v3
+docker run -d --name integrador_pbl -p 8080:8080/udp -p 8082:8082/tcp -e ATUADOR_ADDR="<IP_DO_PC1>:8081" cleidsonramos/integrador:v3
 ```
 
 2. (Opcional, recomendado) Libere firewall no PC 2:
@@ -203,9 +197,7 @@ sudo ufw allow 8081/tcp
 1. Inicie o cliente/painel apontando para o integrador (PC 2):
 
 ```bash
-docker run -it --name cliente_pbl \
-    -e INTEGRADOR_ADDR="<IP_DO_PC2>:8082" \
-    cleidsonramos/cliente:v1
+docker run -it --name cliente_pbl -e INTEGRADOR_ADDR="<IP_DO_PC2>:8082" cleidsonramos/cliente:v1
 ```
 
 ### Verificacao

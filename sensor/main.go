@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
 	"time"
@@ -29,23 +28,24 @@ func main() {
 
 	fmt.Printf("Sensor de Temperatura iniciado. Enviando para %s via UDP.\n", addrEnv)
 
-	// Define uma temperatura inicial realista
+	// Define uma temperatura inicial realista e a taxa de variação fixa
 	temperaturaAtual := 25.0
+	variacao := 0.33
 
 	for {
-		// Varia a temperatura suavemente entre -0.5 e +0.5 graus
-		variacao := (rand.Float64() * 1.0) - 0.5
+		// Aplica a variação atual (sobe ou desce)
 		temperaturaAtual += variacao
 
-		// Cria limites para não congelar nem pegar fogo (ex: entre 18°C e 35°C)
-		if temperaturaAtual < 18.0 {
-			temperaturaAtual = 18.0
-		} else if temperaturaAtual > 35.0 {
-			temperaturaAtual = 35.0
+		if temperaturaAtual >= 40.0 {
+			temperaturaAtual = 40.0
+			variacao = -0.33
+		} else if temperaturaAtual <= 16.0 {
+			temperaturaAtual = 16.0
+			variacao = 0.33
 		}
 
 		mensagem := fmt.Sprintf("%.2f", temperaturaAtual)
-		fmt.Printf("Enviando telemetria: %s°C\n", mensagem)
+		fmt.Printf("Enviando temperatura: %s°C\n", mensagem)
 
 		// Envia o pacote UDP
 		_, err := conn.Write([]byte(mensagem))
@@ -53,7 +53,7 @@ func main() {
 			fmt.Printf("Erro de rede: %v\n", err)
 		}
 
-		// Envio contínuo (a cada 500ms para simular alto volume de telemetria)
+		// Envio contínuo (a cada 500ms)
 		time.Sleep(500 * time.Millisecond)
 	}
 }
