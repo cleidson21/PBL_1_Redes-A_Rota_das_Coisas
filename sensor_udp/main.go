@@ -18,7 +18,7 @@ func main() {
 	// Pega o nome do sensor (Ex: SALA_1, SALA_2)
 	sensorID := os.Getenv("SENSOR_ID")
 	if sensorID == "" {
-		sensorID = "SENSOR_PADRAO"
+		sensorID = "SALA_1"
 	}
 
 	// Pega o tipo de grandeza física (Ex: TEMP, UMIDADE, PRESSAO, etc)

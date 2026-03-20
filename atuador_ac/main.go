@@ -12,7 +12,7 @@ func main() {
 	// Identidade do Atuador
 	atuadorID := os.Getenv("ATUADOR_ID")
 	if atuadorID == "" {
-		atuadorID = "ATUADOR_PADRAO_1"
+		atuadorID = "SALA_1"
 	}
 
 	// Pode ser AR_CONDICIONADO ou LAMPADA
@@ -37,7 +37,7 @@ func main() {
 	fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
 
 	// Manda a mensagem de Registro para o Integrador
-	fmt.Fprintf(conn, "REGISTRO|AR_CONDICIONADO|%s\n", atuadorID)
+	fmt.Fprintf(conn, "REGISTRO|%s|%s\n", tipoAtuador, atuadorID)
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
@@ -48,14 +48,14 @@ func main() {
 		switch acao {
 		case "LIGAR":
 			fmt.Printf("❄️ [%s] LIGANDO compressor do Ar...\n", atuadorID)
-			fmt.Fprintf(conn, "ACK|AR_CONDICIONADO|%s|LIGADO\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|%s|%s|LIGADO\n", tipoAtuador, atuadorID)
 		case "DESLIGAR":
 			fmt.Printf("🛑 [%s] DESLIGANDO Ar-Condicionado...\n", atuadorID)
-			fmt.Fprintf(conn, "ACK|AR_CONDICIONADO|%s|DESLIGADO\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|%s|%s|DESLIGADO\n", tipoAtuador, atuadorID)
 		case "SET_TEMP":
 			if len(partes) > 1 {
 				fmt.Printf("🌡️ [%s] Ajustando termostato para %s°C\n", atuadorID, partes[1])
-				fmt.Fprintf(conn, "ACK|AR_CONDICIONADO|%s|TEMP_SETADA_%s\n", atuadorID, partes[1])
+				fmt.Fprintf(conn, "ACK|%s|%s|TEMP_SETADA_%s\n", tipoAtuador, atuadorID, partes[1])
 			}
 		default:
 			fmt.Printf("⚠️ Comando desconhecido para AC: %s\n", comando)

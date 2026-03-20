@@ -12,7 +12,7 @@ services:
 
   # 2. SENSORES
   sensor_temp_sala1:
-    build: ./sensor_udp  # Lembre-se de renomear a pasta antiga "sensor" para "sensor_udp"
+    build: ./sensor_udp  
     container_name: sensor_temp_sala1
     depends_on:
       - integrador
@@ -23,7 +23,7 @@ services:
     restart: always
 
   sensor_nfc_entrada:
-    build: ./sensor_tcp  # Nova pasta com o código da catraca
+    build: ./sensor_tcp  
     container_name: sensor_nfc_entrada
     depends_on:
       - integrador
@@ -35,7 +35,7 @@ services:
 
   # 3. ATUADORES
   atuador_ar_sala1:
-    build: ./atuador
+    build: ./atuador_ac  # <-- ATUALIZADO PARA A NOVA PASTA
     container_name: atuador_ar_sala1
     depends_on:
       - integrador
@@ -46,7 +46,7 @@ services:
     restart: always
 
   atuador_lampada_sala1:
-    build: ./atuador
+    build: ./atuador_led # <-- ATUALIZADO PARA A NOVA PASTA
     container_name: atuador_lampada_sala1
     depends_on:
       - integrador
@@ -63,6 +63,6 @@ services:
     depends_on:
       - integrador
     environment:
-      - INTEGRADOR_ADDR=integrador:8083 # Agora o cliente tem uma porta exclusiva
-    stdin_open: true # Mantém o stdin aberto para interação
-    tty: true        # Mantém o terminal aberto para interação
+      - INTEGRADOR_ADDR=integrador:8083 
+    stdin_open: true 
+    tty: true

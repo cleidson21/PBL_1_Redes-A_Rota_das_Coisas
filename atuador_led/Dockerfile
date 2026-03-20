@@ -10,7 +10,4 @@ FROM alpine:latest
 WORKDIR /root/
 COPY --from=builder /app/atuador_led .
 
-# Expõe a porta TCP do atuador
-EXPOSE 8081/tcp
-
 CMD ["./atuador_led"]
