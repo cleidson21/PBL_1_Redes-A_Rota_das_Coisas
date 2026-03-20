@@ -116,7 +116,11 @@ func manipularAtuador(conn net.Conn) {
 
 		// Se for uma mensagem de REGISTRO (Ex: REGISTRO|AR_CONDICIONADO|SALA_1)
 		if partes[0] == "REGISTRO" && len(partes) >= 3 {
-			atuadorID = partes[2]
+			tipoAtuador := partes[1]
+			idSala := partes[2]
+
+			// Cria a chave única! Ex: AR_CONDICIONADO_SALA_1
+			atuadorID = fmt.Sprintf("%s_%s", tipoAtuador, idSala)
 
 			// Salva a conexão no Dicionário usando o Mutex para proteção
 			muAtuadores.Lock()

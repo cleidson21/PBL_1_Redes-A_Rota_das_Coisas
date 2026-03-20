@@ -100,8 +100,8 @@ func main() {
 			sala.ModoAuto = false
 			mu.Unlock()
 
-			// ENVIAMOS COM O PREFIXO "AR_"
-			fmt.Fprintf(conn, "AR_%s|%s\n", idSala, acao)
+			// ENVIAMOS COM O PREFIXO EXATO DO ATUADOR
+			fmt.Fprintf(conn, "AR_CONDICIONADO_%s|%s\n", idSala, acao)
 			fmt.Println("⏳ Comando enviado para o Ar-Condicionado! (Modo Auto desativado)")
 
 		case "3":
@@ -149,8 +149,8 @@ func main() {
 			acao, _ := reader.ReadString('\n')
 			acao = strings.TrimSpace(strings.ToUpper(acao))
 
-			// ENVIAMOS COM O PREFIXO "LAMP_"
-			fmt.Fprintf(conn, "LAMP_%s|%s\n", idSala, acao)
+			// ENVIAMOS COM O PREFIXO EXATO DO ATUADOR
+			fmt.Fprintf(conn, "LAMPADA_%s|%s\n", idSala, acao)
 			fmt.Println("💡 Comando enviado para a Lâmpada!")
 
 		case "0":
@@ -230,12 +230,12 @@ func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 
 	// Se esquentou demais e o ar está desligado -> Manda Ligar
 	if sala.TemperaturaAtual >= limiteSuperior && !sala.ArLigado {
-		fmt.Fprintf(conn, "%s|LIGAR\n", id)
+		fmt.Fprintf(conn, "AR_CONDICIONADO_%s|LIGAR\n", id)
 	}
 
 	// Se esfriou demais e o ar está ligado -> Manda Desligar
 	if sala.TemperaturaAtual <= limiteInferior && sala.ArLigado {
-		fmt.Fprintf(conn, "%s|DESLIGAR\n", id)
+		fmt.Fprintf(conn, "AR_CONDICIONADO_%s|DESLIGAR\n", id)
 	}
 }
 

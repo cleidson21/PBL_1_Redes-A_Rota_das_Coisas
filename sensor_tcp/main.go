@@ -39,13 +39,13 @@ func main() {
 	crachas := []string{"USER_4091", "USER_1192", "USER_5583", "USER_9944"}
 
 	for {
-		// Sorteia um crachá e cria a mensagem
+		// Sorteia um crachá e cria a mensagem no formato "SENSOR_TIPO|SENSOR_ID|CRACHA_LIDO"
 		crachaLido := crachas[rand.Intn(len(crachas))]
-		mensagem := fmt.Sprintf("%s|%s|CRACHA_%s\n", sensorTipo, sensorID, crachaLido)
+		mensagem := fmt.Sprintf("%s|%s|CRACHA_%s", sensorTipo, sensorID, crachaLido)
 
-		fmt.Printf("Enviando leitura -> %s", mensagem)
+		fmt.Printf("Enviando leitura -> %s\n", mensagem)
 
-		// Envia pelo túnel TCP
+		// Envia a mensagem para o Integrador TCP (a conexão já está estabelecida)
 		fmt.Fprintf(conn, "%s\n", mensagem)
 
 		// Espera um tempo aleatório entre 5 e 15 segundos para simular a próxima pessoa
