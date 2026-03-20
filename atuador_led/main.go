@@ -12,13 +12,13 @@ func main() {
 	// Identidade do Atuador
 	atuadorID := os.Getenv("ATUADOR_ID")
 	if atuadorID == "" {
-		atuadorID = "ATUADOR_PADRAO"
+		atuadorID = "ATUADOR_PADRAO_2"
 	}
 
 	// Pode ser AR_CONDICIONADO ou LAMPADA
 	tipoAtuador := os.Getenv("ATUADOR_TIPO")
 	if tipoAtuador == "" {
-		tipoAtuador = "AR_CONDICIONADO"
+		tipoAtuador = "LAMPADA"
 	}
 
 	// Configurações de Rede do Integrador
@@ -37,7 +37,7 @@ func main() {
 	fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
 
 	// Manda a mensagem de Registro para o Integrador
-	fmt.Fprintf(conn, "REGISTRO|%s|%s\n", tipoAtuador, atuadorID)
+	fmt.Fprintf(conn, "REGISTRO|LAMPADA|%s\n", atuadorID)
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
@@ -47,27 +47,19 @@ func main() {
 
 		switch acao {
 		case "LIGAR":
-			fmt.Printf("💡 [%s] Comando: LIGANDO...\n", atuadorID)
-			// NOVO FORMATO: ACK | TIPO | ID | AÇÃO
-			fmt.Fprintf(conn, "ACK|%s|%s|LIGADO\n", tipoAtuador, atuadorID)
-
+			fmt.Printf("💡 [%s] Lâmpada ACESA...\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|LAMPADA|%s|LIGADO\n", atuadorID)
 		case "DESLIGAR":
-			fmt.Printf("🛑 [%s] Comando: DESLIGANDO...\n", atuadorID)
-			fmt.Fprintf(conn, "ACK|%s|%s|DESLIGADO\n", tipoAtuador, atuadorID)
-
-		case "SET_TEMP":
-			if tipoAtuador == "LAMPADA" {
-				fmt.Printf("⚠️ [%s] Erro: Lâmpadas não possuem controle de temperatura!\n", atuadorID)
-				fmt.Fprintf(conn, "ERRO|%s|%s|OPERACAO_INVALIDA\n", tipoAtuador, atuadorID)
-			} else {
-				if len(partes) > 1 {
-					fmt.Printf("🌡️  [%s] Comando: Ajustando termostato para %s°C\n", atuadorID, partes[1])
-					fmt.Fprintf(conn, "ACK|%s|%s|TEMP_SETADA_%s\n", tipoAtuador, atuadorID, partes[1])
-				}
+			fmt.Printf("🌑 [%s] Lâmpada APAGADA...\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|LAMPADA|%s|DESLIGADO\n", atuadorID)
+		case "SET_BRILHO":
+			// Exemplo de como a separação permite comandos exclusivos!
+			if len(partes) > 1 {
+				fmt.Printf("🔆 [%s] Ajustando brilho para %s%%\n", atuadorID, partes[1])
+				fmt.Fprintf(conn, "ACK|LAMPADA|%s|BRILHO_%s\n", atuadorID, partes[1])
 			}
-
 		default:
-			fmt.Printf("⚠️ [%s] Comando desconhecido: %s\n", atuadorID, comando)
+			fmt.Printf("⚠️ Comando desconhecido para Lâmpada: %s\n", comando)
 		}
 	}
 }

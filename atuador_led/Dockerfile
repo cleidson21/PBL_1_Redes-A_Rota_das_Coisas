@@ -3,14 +3,14 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /app
 COPY go.mod ./
 COPY main.go ./
-RUN go build -o atuador main.go
+RUN go build -o atuador_led main.go
 
 # Estágio final
 FROM alpine:latest
 WORKDIR /root/
-COPY --from=builder /app/atuador .
+COPY --from=builder /app/atuador_led .
 
 # Expõe a porta TCP do atuador
 EXPOSE 8081/tcp
 
-CMD ["./atuador"]
+CMD ["./atuador_led"]
