@@ -48,21 +48,21 @@ func main() {
 		switch acao {
 		case "LIGAR":
 			fmt.Printf("💡 [%s] Comando: LIGANDO...\n", atuadorID)
-			fmt.Fprintf(conn, "ACK|%s|LIGADO\n", atuadorID)
+			// NOVO FORMATO: ACK | TIPO | ID | AÇÃO
+			fmt.Fprintf(conn, "ACK|%s|%s|LIGADO\n", tipoAtuador, atuadorID)
 
 		case "DESLIGAR":
 			fmt.Printf("🛑 [%s] Comando: DESLIGANDO...\n", atuadorID)
-			fmt.Fprintf(conn, "ACK|%s|DESLIGADO\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|%s|%s|DESLIGADO\n", tipoAtuador, atuadorID)
 
 		case "SET_TEMP":
-			// Lâmpadas não possuem controle de temperatura, então ignoramos esse comando para elas
 			if tipoAtuador == "LAMPADA" {
 				fmt.Printf("⚠️ [%s] Erro: Lâmpadas não possuem controle de temperatura!\n", atuadorID)
-				fmt.Fprintf(conn, "ERRO|%s|OPERACAO_INVALIDA\n", atuadorID)
+				fmt.Fprintf(conn, "ERRO|%s|%s|OPERACAO_INVALIDA\n", tipoAtuador, atuadorID)
 			} else {
 				if len(partes) > 1 {
 					fmt.Printf("🌡️  [%s] Comando: Ajustando termostato para %s°C\n", atuadorID, partes[1])
-					fmt.Fprintf(conn, "ACK|%s|TEMP_SETADA_%s\n", atuadorID, partes[1])
+					fmt.Fprintf(conn, "ACK|%s|%s|TEMP_SETADA_%s\n", tipoAtuador, atuadorID, partes[1])
 				}
 			}
 
