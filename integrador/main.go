@@ -56,8 +56,8 @@ func listenSensoresUDP() {
 		mensagem := strings.TrimSpace(string(buffer[:n]))
 		fmt.Printf("📥 [Sensor UDP] Recebeu: %s\n", mensagem)
 
-		// O Gateway não pensa, ele apenas repassa a mensagem para todos os clientes conectados
-		broadcastParaClientes("TELEMETRIA|" + mensagem)
+		// Repassa a mensagem para todos os clientes conectados
+		broadcastParaClientes("TLM|" + mensagem)
 	}
 }
 
@@ -82,7 +82,9 @@ func listenSensoresTCP() {
 			for scanner.Scan() {
 				mensagem := strings.TrimSpace(scanner.Text())
 				fmt.Printf("📥 [Sensor TCP] Recebeu: %s\n", mensagem)
-				broadcastParaClientes("EVENTO|" + mensagem)
+
+				// OTIMIZAÇÃO: Usa o prefixo "EVT" (Evento)
+				broadcastParaClientes("EVT|" + mensagem)
 			}
 		}(conn)
 	}
@@ -114,12 +116,12 @@ func manipularAtuador(conn net.Conn) {
 		mensagem := strings.TrimSpace(scanner.Text())
 		partes := strings.Split(mensagem, "|")
 
-		// Se for uma mensagem de REGISTRO (Ex: REGISTRO|AR_CONDICIONADO|SALA_1)
-		if partes[0] == "REGISTRO" && len(partes) >= 3 {
+		// Se for uma mensagem de REGISTRO (Ex: REG|AC|SALA_1)
+		if partes[0] == "REG" && len(partes) >= 3 {
 			tipoAtuador := partes[1]
 			idSala := partes[2]
 
-			// Cria a chave única! Ex: AR_CONDICIONADO_SALA_1
+			// Cria a chave única! Ex: AC_SALA_1 ou LED_SALA_1
 			atuadorID = fmt.Sprintf("%s_%s", tipoAtuador, idSala)
 
 			// Salva a conexão no Dicionário usando o Mutex para proteção
@@ -131,7 +133,7 @@ func manipularAtuador(conn net.Conn) {
 			continue
 		}
 
-		// Se for um Recibo/Confirmação (ACK) do Atuador, repassa para o Cliente
+		// Se for um Recibo/Confirmação (ACK) ou ERRO do Atuador, repassa para o Cliente
 		if partes[0] == "ACK" || partes[0] == "ERRO" {
 			fmt.Printf("📤 [Atuador -> Cliente] Repassando: %s\n", mensagem)
 			broadcastParaClientes(mensagem)
@@ -176,7 +178,7 @@ func listenClientesTCP() {
 func manipularCliente(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 
-	// O Cliente enviará comandos no formato: ID_ATUADOR|COMANDO (Ex: SALA_1|LIGAR)
+	// O Cliente enviará comandos no formato: ID_ATUADOR|COMANDO (Ex: AC_SALA_1|LIGAR)
 	for scanner.Scan() {
 		mensagem := strings.TrimSpace(scanner.Text())
 		partes := strings.SplitN(mensagem, "|", 2) // Corta apenas no primeiro "|"

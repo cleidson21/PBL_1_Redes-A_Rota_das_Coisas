@@ -15,10 +15,9 @@ func main() {
 		atuadorID = "SALA_1"
 	}
 
-	// Define o tipo
 	tipoAtuador := os.Getenv("ATUADOR_TIPO")
 	if tipoAtuador == "" {
-		tipoAtuador = "LAMPADA"
+		tipoAtuador = "LED"
 	}
 
 	// Configurações de Rede do Integrador
@@ -36,8 +35,8 @@ func main() {
 
 	fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
 
-	// Manda a mensagem de Registro para o Integrador
-	fmt.Fprintf(conn, "REGISTRO|%s|%s\n", tipoAtuador, atuadorID)
+	// Fica: REG|LED|SALA_1
+	fmt.Fprintf(conn, "REG|%s|%s\n", tipoAtuador, atuadorID)
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
@@ -48,6 +47,7 @@ func main() {
 		switch acao {
 		case "LIGAR":
 			fmt.Printf("💡 [%s] Lâmpada ACESA...\n", atuadorID)
+			// Exemplo de saída: ACK|LED|SALA_1|LIGADO
 			fmt.Fprintf(conn, "ACK|%s|%s|LIGADO\n", tipoAtuador, atuadorID)
 		case "DESLIGAR":
 			fmt.Printf("🌑 [%s] Lâmpada APAGADA...\n", atuadorID)

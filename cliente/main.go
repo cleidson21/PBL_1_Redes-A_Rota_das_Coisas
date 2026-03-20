@@ -44,27 +44,26 @@ func getSalaSegura(id string) *EstadoSala {
 	return salas[id]
 }
 
-// FUNÇÃO PRINCIPAL E INTERFACE COM O USUÁRIO (CLI)
+// FUNÇÃO PRINCIPAL E INTERFACE COM O UTILIZADOR (CLI)
 func main() {
 	addrEnv := os.Getenv("INTEGRADOR_ADDR")
 	if addrEnv == "" {
-		addrEnv = "localhost:8083" // Nova porta do Integrador para Clientes
+		addrEnv = "localhost:8083" // Porta do Integrador para Clientes
 	}
 
 	conn, err := net.Dial("tcp", addrEnv)
 	if err != nil {
-		fmt.Printf("❌ Erro ao conectar ao Integrador em %s: %v\n", addrEnv, err)
+		fmt.Printf("❌ Erro ao ligar ao Integrador em %s: %v\n", addrEnv, err)
 		return
 	}
 	defer conn.Close()
 
-	fmt.Println("✅ Conectado com sucesso ao Gateway Integrador!")
+	fmt.Println("✅ Ligado com sucesso ao Gateway Integrador!")
 
 	// INICIA O CÉREBRO EM SEGUNDO PLANO
-	// Ao invés de ler a rede aqui no loop principal, jogamos isso para uma Goroutine!
 	go ouvirRedeEProcessarLogica(conn)
 
-	// O LOOP DO MENU (Interação com o Usuário)
+	// O LOOP DO MENU (Interação com o Utilizador)
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -100,8 +99,7 @@ func main() {
 			sala.ModoAuto = false
 			mu.Unlock()
 
-			// ENVIAMOS COM O PREFIXO EXATO DO ATUADOR
-			fmt.Fprintf(conn, "AR_CONDICIONADO_%s|%s\n", idSala, acao)
+			fmt.Fprintf(conn, "AC_%s|%s\n", idSala, acao)
 			fmt.Println("⏳ Comando enviado para o Ar-Condicionado! (Modo Auto desativado)")
 
 		case "3":
@@ -135,6 +133,8 @@ func main() {
 				sala := getSalaSegura(idSala)
 				sala.TemperaturaAlvo = tempVal
 				mu.Unlock()
+
+				fmt.Fprintf(conn, "AC_%s|SET_TEMP %.1f\n", idSala, tempVal)
 				fmt.Printf("🎯 Alvo da %s alterado para %.1f°C\n", idSala, tempVal)
 			} else {
 				fmt.Println("❌ Valor de temperatura inválido.")
@@ -149,12 +149,11 @@ func main() {
 			acao, _ := reader.ReadString('\n')
 			acao = strings.TrimSpace(strings.ToUpper(acao))
 
-			// ENVIAMOS COM O PREFIXO EXATO DO ATUADOR
-			fmt.Fprintf(conn, "LAMPADA_%s|%s\n", idSala, acao)
+			fmt.Fprintf(conn, "LED_%s|%s\n", idSala, acao)
 			fmt.Println("💡 Comando enviado para a Lâmpada!")
 
 		case "0":
-			fmt.Println("Desconectando do sistema...")
+			fmt.Println("A desligar do sistema...")
 			return
 		default:
 			fmt.Println("⚠️ Opção inválida.")
@@ -178,20 +177,19 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 
 		mu.Lock()
 
-		// RECEBEU TELEMETRIA (Ex: TELEMETRIA|TEMP|SALA_1|25.5)
-		if tipoMsg == "TELEMETRIA" && partes[1] == "TEMP" {
+		// RECEBEU TELEMETRIA (Ex: TLM|T|SALA_1|25.5)
+		if tipoMsg == "TLM" && partes[1] == "T" {
 			idSala := partes[2]
 			tempAtual, _ := strconv.ParseFloat(partes[3], 64)
 
 			sala := getSalaSegura(idSala)
 			sala.TemperaturaAtual = tempAtual
 
-			// MÁGICA DA HISTERESE AQUI:
 			avaliarModoAutomatico(idSala, sala, conn)
 		}
 
-		// RECEBEU EVENTO (Ex: EVENTO|NFC|CATRACA_ENTRADA|CRACHA_USER_4091)
-		if tipoMsg == "EVENTO" {
+		// RECEBEU EVENTO (Ex: EVT|NFC|CATRACA_ENTRADA|USER_4091)
+		if tipoMsg == "EVT" {
 			idSala := partes[2]
 			evento := partes[3]
 
@@ -199,17 +197,17 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala.UltimoEvento = evento
 		}
 
-		// 3. RECEBEU CONFIRMAÇÃO DO ATUADOR (Ex: ACK|AR_CONDICIONADO|SALA_1|LIGADO)
+		// RECEBEU CONFIRMAÇÃO DO ATUADOR (Ex: ACK|AC|SALA_1|LIGADO ou ACK|LED|SALA_1|LIGADO)
 		if tipoMsg == "ACK" && len(partes) >= 4 {
-			tipoAtuador := partes[1] // AR_CONDICIONADO ou LAMPADA
+			tipoAtuador := partes[1] // AC ou LED
 			idSala := partes[2]      // SALA_1
 			acao := partes[3]        // LIGADO ou DESLIGADO
 
 			sala := getSalaSegura(idSala)
 
-			if tipoAtuador == "AR_CONDICIONADO" {
+			if tipoAtuador == "AC" {
 				sala.ArLigado = (acao == "LIGADO")
-			} else if tipoAtuador == "LAMPADA" {
+			} else if tipoAtuador == "LED" {
 				sala.LampadaLigada = (acao == "LIGADO")
 			}
 		}
@@ -219,7 +217,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 }
 
 // avaliarModoAutomatico executa a regra de negócio.
-// ATENÇÃO: Essa função pressupõe que o Mutex já está travado por quem a chamou.
+// ATENÇÃO: Esta função pressupõe que o Mutex já está trancado por quem a chamou.
 func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	if !sala.ModoAuto {
 		return // Se estiver no manual, o cérebro não faz nada
@@ -228,25 +226,25 @@ func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	limiteSuperior := sala.TemperaturaAlvo + 1.0
 	limiteInferior := sala.TemperaturaAlvo - 1.0
 
-	// Se esquentou demais e o ar está desligado -> Manda Ligar
+	// Se aqueceu demais e o ar está desligado -> Manda Ligar
 	if sala.TemperaturaAtual >= limiteSuperior && !sala.ArLigado {
-		fmt.Fprintf(conn, "AR_CONDICIONADO_%s|LIGAR\n", id)
+		fmt.Fprintf(conn, "AC_%s|LIGAR\n", id)
 	}
 
-	// Se esfriou demais e o ar está ligado -> Manda Desligar
+	// Se arrefeceu demais e o ar está ligado -> Manda Desligar
 	if sala.TemperaturaAtual <= limiteInferior && sala.ArLigado {
-		fmt.Fprintf(conn, "AR_CONDICIONADO_%s|DESLIGAR\n", id)
+		fmt.Fprintf(conn, "AC_%s|DESLIGAR\n", id)
 	}
 }
 
-// FUNÇÃO VISUAL: Imprime o estado de todas as salas na tela
+// FUNÇÃO VISUAL: Imprime o estado de todas as salas no ecrã
 func imprimirPainel() {
 	mu.RLock()
 	defer mu.RUnlock()
 
 	fmt.Println("\n📊 === STATUS ATUAL DA REDE ===")
 	if len(salas) == 0 {
-		fmt.Println("Nenhum dado recebido ainda. Aguarde os sensores...")
+		fmt.Println("Nenhum dado recebido ainda. Aguarde pelos sensores...")
 		return
 	}
 
@@ -256,13 +254,18 @@ func imprimirPainel() {
 			statusAr = "🟢 LIGADO"
 		}
 
+		statusLampada := "🌑 APAGADA"
+		if sala.LampadaLigada {
+			statusLampada = "💡 ACESA"
+		}
+
 		modo := "✋ MANUAL"
 		if sala.ModoAuto {
 			modo = "🤖 AUTO"
 		}
 
-		fmt.Printf("📍 [%s] Temp: %.1f°C | Alvo: %.1f°C | Ar: %s | Modo: %s | Info Extra: %s\n",
-			id, sala.TemperaturaAtual, sala.TemperaturaAlvo, statusAr, modo, sala.UltimoEvento)
+		fmt.Printf("📍 [%s] Temp: %.1f°C | Alvo: %.1f°C | Ar: %s | Lâmpada: %s | Modo: %s | Info Extra: %s\n",
+			id, sala.TemperaturaAtual, sala.TemperaturaAlvo, statusAr, statusLampada, modo, sala.UltimoEvento)
 	}
 	fmt.Println("===============================")
 }

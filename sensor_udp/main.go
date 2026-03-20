@@ -21,27 +21,27 @@ func main() {
 		sensorID = "SALA_1"
 	}
 
-	// Pega o tipo de grandeza física (Ex: TEMP, UMIDADE, PRESSAO, etc)
+	// Pega o tipo de grandeza física (Ex: T para Temperatura, U para Umidade)
 	sensorTipo := os.Getenv("SENSOR_TIPO")
 	if sensorTipo == "" {
-		sensorTipo = "TEMP"
+		sensorTipo = "T"
 	}
 
 	// Conexão UDP
 	servidorAddr, err := net.ResolveUDPAddr("udp", addrEnv)
 	if err != nil {
-		fmt.Printf("Erro ao resolver endereço: %v\n", err)
+		fmt.Printf("❌ Erro ao resolver endereço: %v\n", err)
 		return
 	}
 
 	conn, err := net.DialUDP("udp", nil, servidorAddr)
 	if err != nil {
-		fmt.Printf("Erro ao conectar: %v\n", err)
+		fmt.Printf("❌ Erro ao conectar: %v\n", err)
 		return
 	}
 	defer conn.Close()
 
-	fmt.Printf("📡 %s [%s] iniciado! Enviando telemetria para %s via UDP.\n", sensorTipo, sensorID, addrEnv)
+	fmt.Printf("📡 Sensor [%s] tipo [%s] iniciado! Enviando telemetria para %s via UDP.\n", sensorID, sensorTipo, addrEnv)
 
 	// Lógica de Simulação de Dados
 	temperaturaAtual := 25.0
@@ -59,14 +59,14 @@ func main() {
 			variacao = 0.33
 		}
 
-		// Junta tudo no formato: TIPO|ID|VALOR
+		// Formato: TIPO|ID|VALOR -> Exemplo na rede: T|SALA_1|25.50
 		mensagem := fmt.Sprintf("%s|%s|%.2f", sensorTipo, sensorID, temperaturaAtual)
 		fmt.Printf("Enviando -> %s\n", mensagem)
 
-		// Envia o pacote UDP
+		// Envia o pacote UDP (Fire and Forget)
 		_, err := conn.Write([]byte(mensagem))
 		if err != nil {
-			fmt.Printf("Erro de rede: %v\n", err)
+			fmt.Printf("⚠️ Erro de rede: %v\n", err)
 		}
 
 		// Envio contínuo (a cada 500ms)
