@@ -8,11 +8,26 @@ import (
 )
 
 func main() {
+	// Configurações de Rede
 	addrEnv := os.Getenv("SERVER_ADDR")
 	if addrEnv == "" {
 		addrEnv = "localhost:8080"
 	}
 
+	// Identidade do Sensor (Ambiente e Tipo)
+	// Pega o nome do sensor (Ex: SALA_1, SALA_2)
+	sensorID := os.Getenv("SENSOR_ID")
+	if sensorID == "" {
+		sensorID = "SENSOR_PADRAO"
+	}
+
+	// Pega o tipo de grandeza física (Ex: TEMP, UMIDADE, PRESSAO, etc)
+	sensorTipo := os.Getenv("SENSOR_TIPO")
+	if sensorTipo == "" {
+		sensorTipo = "TEMP"
+	}
+
+	// Conexão UDP
 	servidorAddr, err := net.ResolveUDPAddr("udp", addrEnv)
 	if err != nil {
 		fmt.Printf("Erro ao resolver endereço: %v\n", err)
@@ -26,9 +41,9 @@ func main() {
 	}
 	defer conn.Close()
 
-	fmt.Printf("Sensor de Temperatura iniciado. Enviando para %s via UDP.\n", addrEnv)
+	fmt.Printf("📡 %s [%s] iniciado! Enviando telemetria para %s via UDP.\n", sensorTipo, sensorID, addrEnv)
 
-	// Define uma temperatura inicial realista e a taxa de variação fixa
+	// Lógica de Simulação de Dados
 	temperaturaAtual := 25.0
 	variacao := 0.33
 
@@ -44,8 +59,9 @@ func main() {
 			variacao = 0.33
 		}
 
-		mensagem := fmt.Sprintf("%.2f", temperaturaAtual)
-		fmt.Printf("Enviando temperatura: %s°C\n", mensagem)
+		// Junta tudo no formato: TIPO|ID|VALOR
+		mensagem := fmt.Sprintf("%s|%s|%.2f", sensorTipo, sensorID, temperaturaAtual)
+		fmt.Printf("Enviando -> %s\n", mensagem)
 
 		// Envia o pacote UDP
 		_, err := conn.Write([]byte(mensagem))

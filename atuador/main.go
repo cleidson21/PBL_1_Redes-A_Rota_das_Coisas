@@ -4,72 +4,70 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 )
 
 func main() {
-	// O Atuador será um servidor TCP aguardando comandos
-	porta := ":8081"
-	listener, err := net.Listen("tcp", porta)
+	// Identidade do Atuador
+	atuadorID := os.Getenv("ATUADOR_ID")
+	if atuadorID == "" {
+		atuadorID = "ATUADOR_PADRAO"
+	}
+
+	// Pode ser AR_CONDICIONADO ou LAMPADA
+	tipoAtuador := os.Getenv("ATUADOR_TIPO")
+	if tipoAtuador == "" {
+		tipoAtuador = "AR_CONDICIONADO"
+	}
+
+	// Configurações de Rede do Integrador
+	integradorAddr := os.Getenv("INTEGRADOR_ADDR")
+	if integradorAddr == "" {
+		integradorAddr = "localhost:8082"
+	}
+
+	conn, err := net.Dial("tcp", integradorAddr)
 	if err != nil {
-		fmt.Printf("Erro ao iniciar atuador TCP: %v\n", err)
+		fmt.Printf("❌ Erro ao conectar no Integrador: %v\n", err)
 		return
 	}
-	defer listener.Close()
-
-	fmt.Printf("Atuador de Refrigeração iniciado. Aguardando comandos na porta %s (TCP)...\n", porta)
-
-	for {
-		// Fica travado aqui até receber uma nova conexão do Integrador
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Printf("Erro ao aceitar conexão: %v\n", err)
-			continue
-		}
-
-		// A palavra 'go' cria uma Goroutine! 
-		// O sistema lida com esse cliente em paralelo e volta a ouvir a porta imediatamente.
-		go manipularConexao(conn)
-	}
-}
-
-// Função que processa os comandos recebidos
-func manipularConexao(conn net.Conn) {
 	defer conn.Close()
-	clienteAddr := conn.RemoteAddr().String()
-	fmt.Printf("\n[Nova Conexão] Sistema Integrador conectado: %s\n", clienteAddr)
+
+	fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
+
+	// Manda a mensagem de Registro para o Integrador
+	fmt.Fprintf(conn, "REGISTRO|%s|%s\n", tipoAtuador, atuadorID)
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		comando := strings.TrimSpace(scanner.Text())
-		fmt.Printf("-> Comando Recebido: %s\n", comando)
-
-		// Lógica simples do Ar-Condicionado (Separa a ação do valor)
 		partes := strings.Split(comando, " ")
 		acao := partes[0]
 
 		switch acao {
 		case "LIGAR":
-			fmt.Println("❄️ AÇÃO: Ligando o compressor do ar-condicionado.")
-			conn.Write([]byte("OK: Sistema Ligado\n")) // Confirmação de volta (ACK)
-			
+			fmt.Printf("💡 [%s] Comando: LIGANDO...\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|%s|LIGADO\n", atuadorID)
+
 		case "DESLIGAR":
-			fmt.Println("🛑 AÇÃO: Desligando o ar-condicionado.")
-			conn.Write([]byte("OK: Sistema Desligado\n"))
-			
+			fmt.Printf("🛑 [%s] Comando: DESLIGANDO...\n", atuadorID)
+			fmt.Fprintf(conn, "ACK|%s|DESLIGADO\n", atuadorID)
+
 		case "SET_TEMP":
-			if len(partes) > 1 {
-				fmt.Printf("🌡️ AÇÃO: Ajustando termostato para %s°C.\n", partes[1])
-				conn.Write([]byte(fmt.Sprintf("OK: Temperatura ajustada para %s\n", partes[1])))
+			// Lâmpadas não possuem controle de temperatura, então ignoramos esse comando para elas
+			if tipoAtuador == "LAMPADA" {
+				fmt.Printf("⚠️ [%s] Erro: Lâmpadas não possuem controle de temperatura!\n", atuadorID)
+				fmt.Fprintf(conn, "ERRO|%s|OPERACAO_INVALIDA\n", atuadorID)
 			} else {
-				conn.Write([]byte("ERRO: Falta o valor da temperatura\n"))
+				if len(partes) > 1 {
+					fmt.Printf("🌡️  [%s] Comando: Ajustando termostato para %s°C\n", atuadorID, partes[1])
+					fmt.Fprintf(conn, "ACK|%s|TEMP_SETADA_%s\n", atuadorID, partes[1])
+				}
 			}
-			
+
 		default:
-			fmt.Println("⚠️ Comando desconhecido ignorado.")
-			conn.Write([]byte("ERRO: Comando invalido\n"))
+			fmt.Printf("⚠️ [%s] Comando desconhecido: %s\n", atuadorID, comando)
 		}
 	}
-
-	fmt.Printf("[Desconectado] Conexão com %s encerrada.\n", clienteAddr)
 }
