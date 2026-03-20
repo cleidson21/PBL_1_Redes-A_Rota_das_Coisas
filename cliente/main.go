@@ -17,8 +17,9 @@ type EstadoSala struct {
 	TemperaturaAtual float64
 	TemperaturaAlvo  float64
 	ArLigado         bool
+	LampadaLigada    bool
 	ModoAuto         bool
-	UltimoEvento     string // Para guardar quem passou o crachá na catraca
+	UltimoEvento     string
 }
 
 // O Dicionário (Map) que guarda o estado de cada sala dinamicamente
@@ -33,9 +34,10 @@ func getSalaSegura(id string) *EstadoSala {
 	if _, existe := salas[id]; !existe {
 		salas[id] = &EstadoSala{
 			TemperaturaAtual: 0.0,
-			TemperaturaAlvo:  24.0, // Alvo padrão
+			TemperaturaAlvo:  24.0,
 			ArLigado:         false,
-			ModoAuto:         true, // Começa no automático por padrão
+			LampadaLigada:    false,
+			ModoAuto:         true,
 			UltimoEvento:     "Nenhum",
 		}
 	}
@@ -73,6 +75,7 @@ func main() {
 		fmt.Println("[2] Ligar/Desligar Ar (Manual)")
 		fmt.Println("[3] Ligar/Desligar Modo Automático")
 		fmt.Println("[4] Definir Nova Temperatura Alvo")
+		fmt.Println("[5] Ligar/Desligar Lâmpada (Manual)")
 		fmt.Println("[0] Sair")
 		fmt.Println("===================================")
 		fmt.Print("Escolha uma opção: ")
@@ -92,14 +95,14 @@ func main() {
 			acao, _ := reader.ReadString('\n')
 			acao = strings.TrimSpace(strings.ToUpper(acao))
 
-			// Desliga o modo auto daquela sala para o humano poder assumir
 			mu.Lock()
 			sala := getSalaSegura(idSala)
 			sala.ModoAuto = false
 			mu.Unlock()
 
-			fmt.Fprintf(conn, "%s|%s\n", idSala, acao)
-			fmt.Println("⏳ Comando enviado! (O modo automático desta sala foi desativado)")
+			// ENVIAMOS COM O PREFIXO "AR_"
+			fmt.Fprintf(conn, "AR_%s|%s\n", idSala, acao)
+			fmt.Println("⏳ Comando enviado para o Ar-Condicionado! (Modo Auto desativado)")
 
 		case "3":
 			fmt.Print("Digite o NOME DA SALA (ex: SALA_1): ")
@@ -136,6 +139,19 @@ func main() {
 			} else {
 				fmt.Println("❌ Valor de temperatura inválido.")
 			}
+
+		case "5":
+			fmt.Print("Digite o NOME DA SALA (ex: SALA_1): ")
+			idSala, _ := reader.ReadString('\n')
+			idSala = strings.TrimSpace(idSala)
+
+			fmt.Print("Digite a AÇÃO (LIGAR ou DESLIGAR): ")
+			acao, _ := reader.ReadString('\n')
+			acao = strings.TrimSpace(strings.ToUpper(acao))
+
+			// ENVIAMOS COM O PREFIXO "LAMP_"
+			fmt.Fprintf(conn, "LAMP_%s|%s\n", idSala, acao)
+			fmt.Println("💡 Comando enviado para a Lâmpada!")
 
 		case "0":
 			fmt.Println("Desconectando do sistema...")
@@ -183,16 +199,18 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala.UltimoEvento = evento
 		}
 
-		// RECEBEU CONFIRMAÇÃO DO ATUADOR (Ex: ACK|SALA_1|LIGADO)
-		if tipoMsg == "ACK" {
-			idSala := partes[1]
-			acao := partes[2]
+		// 3. RECEBEU CONFIRMAÇÃO DO ATUADOR (Ex: ACK|AR_CONDICIONADO|SALA_1|LIGADO)
+		if tipoMsg == "ACK" && len(partes) >= 4 {
+			tipoAtuador := partes[1] // AR_CONDICIONADO ou LAMPADA
+			idSala := partes[2]      // SALA_1
+			acao := partes[3]        // LIGADO ou DESLIGADO
 
 			sala := getSalaSegura(idSala)
-			if acao == "LIGADO" {
-				sala.ArLigado = true
-			} else if acao == "DESLIGADO" {
-				sala.ArLigado = false
+
+			if tipoAtuador == "AR_CONDICIONADO" {
+				sala.ArLigado = (acao == "LIGADO")
+			} else if tipoAtuador == "LAMPADA" {
+				sala.LampadaLigada = (acao == "LIGADO")
 			}
 		}
 
