@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ESTRUTURA DE DADOS (O "Cérebro" do Sistema)
@@ -25,6 +26,8 @@ type EstadoSala struct {
 
 	TemCatraca   bool // Descobre se é um ambiente com Catraca/NFC
 	UltimoEvento string
+
+	UltimoComando time.Time
 }
 
 // O Dicionário (Map) que guarda o estado de cada sala dinamicamente
@@ -40,7 +43,7 @@ func getSalaSegura(id string) *EstadoSala {
 			TemperaturaAlvo:  24.0,
 			ArLigado:         false,
 			LampadaLigada:    false,
-			ModoAuto:         true,
+			ModoAuto:         false,
 			UltimoEvento:     "Nenhum",
 		}
 	}
@@ -235,6 +238,10 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 
 func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	if !sala.ModoAuto {
+		return
+	}
+
+	if time.Since(sala.UltimoComando) < 10*time.Second {
 		return
 	}
 
