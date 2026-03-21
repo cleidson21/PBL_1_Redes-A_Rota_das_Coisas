@@ -66,3 +66,4 @@ services:
       - INTEGRADOR_ADDR=integrador:8083 
     stdin_open: true 
     tty: true
+    

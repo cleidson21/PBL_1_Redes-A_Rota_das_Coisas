@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // ESTRUTURA DE DADOS (O "Cérebro" do Sistema)
@@ -26,8 +25,6 @@ type EstadoSala struct {
 
 	TemCatraca   bool // Descobre se é um ambiente com Catraca/NFC
 	UltimoEvento string
-
-	UltimoComando time.Time
 }
 
 // O Dicionário (Map) que guarda o estado de cada sala dinamicamente
@@ -221,14 +218,33 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			}
 		}
 
+		// RECEBEU MENSAGEM DE ERRO
 		if tipoMsg == "ERRO" && len(partes) >= 3 {
 			origem := partes[1]  // De onde veio o erro (GATEWAY, AC ou LED)
-			detalhe := partes[2] // O texto do erro
+			detalhe := partes[2] // Ex: "Atuador AC_SALA_1 nao encontrado ou offline"
 
-			// Dá um aviso visual no terminal
 			fmt.Printf("\n❌ [FALHA DE COMANDO - %s] %s\n", origem, detalhe)
 
-			// Reimprimimos a linha do menu para não quebrar o visual da tela
+			// Desarma o automático se houver falha de comando para um atuador, para evitar loops perigosos
+			if strings.HasPrefix(detalhe, "Atuador ") {
+				pedacos := strings.Split(detalhe, " ") // Divide a frase nos espaços
+				if len(pedacos) >= 2 {
+					idAtuador := pedacos[1] // Pega a palavra "AC_SALA_1"
+
+					// Extrai apenas o nome da sala (tira o AC_ ou LED_)
+					idSala := strings.TrimPrefix(idAtuador, "AC_")
+					idSala = strings.TrimPrefix(idSala, "LED_")
+
+					sala := getSalaSegura(idSala)
+
+					if sala.ModoAuto {
+						sala.ModoAuto = false
+						fmt.Printf("🛑 MODO AUTOMÁTICO da [%s] foi DESATIVADO por segurança.\n", idSala)
+					}
+				}
+			}
+
+			// Reimprime a linha do menu para não quebrar o visual da tela
 			fmt.Print("Escolha uma opção: ")
 		}
 
@@ -238,10 +254,6 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 
 func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	if !sala.ModoAuto {
-		return
-	}
-
-	if time.Since(sala.UltimoComando) < 10*time.Second {
 		return
 	}
 
