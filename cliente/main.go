@@ -11,15 +11,20 @@ import (
 )
 
 // ESTRUTURA DE DADOS (O "Cérebro" do Sistema)
-
-// EstadoSala guarda todas as informações de um ambiente específico
 type EstadoSala struct {
+	TemSensorTemp    bool // Descobre se a sala tem termômetro
 	TemperaturaAtual float64
 	TemperaturaAlvo  float64
-	ArLigado         bool
-	LampadaLigada    bool
-	ModoAuto         bool
-	UltimoEvento     string
+
+	TemAC    bool // Descobre se a sala tem Ar-Condicionado
+	ArLigado bool
+	ModoAuto bool
+
+	TemLampada    bool // Descobre se a sala tem Lâmpada
+	LampadaLigada bool
+
+	TemCatraca   bool // Descobre se é um ambiente com Catraca/NFC
+	UltimoEvento string
 }
 
 // O Dicionário (Map) que guarda o estado de cada sala dinamicamente
@@ -28,8 +33,6 @@ var (
 	salas = make(map[string]*EstadoSala)
 )
 
-// getSalaSegura busca uma sala no mapa. Se não existir, cria uma com valores padrão.
-// ATENÇÃO: Essa função já deve ser chamada com o Mutex travado!
 func getSalaSegura(id string) *EstadoSala {
 	if _, existe := salas[id]; !existe {
 		salas[id] = &EstadoSala{
@@ -63,7 +66,6 @@ func main() {
 	// INICIA O CÉREBRO EM SEGUNDO PLANO
 	go ouvirRedeEProcessarLogica(conn)
 
-	// O LOOP DO MENU (Interação com o Utilizador)
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
@@ -109,7 +111,7 @@ func main() {
 
 			mu.Lock()
 			sala := getSalaSegura(idSala)
-			sala.ModoAuto = !sala.ModoAuto // Inverte o valor atual
+			sala.ModoAuto = !sala.ModoAuto
 			statusAuto := sala.ModoAuto
 			mu.Unlock()
 
@@ -170,7 +172,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 		partes := strings.Split(mensagem, "|")
 
 		if len(partes) < 3 {
-			continue // Ignora mensagens mal formatadas
+			continue
 		}
 
 		tipoMsg := partes[0]
@@ -183,6 +185,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			tempAtual, _ := strconv.ParseFloat(partes[3], 64)
 
 			sala := getSalaSegura(idSala)
+			sala.TemSensorTemp = true
 			sala.TemperaturaAtual = tempAtual
 
 			avaliarModoAutomatico(idSala, sala, conn)
@@ -194,50 +197,60 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			evento := partes[3]
 
 			sala := getSalaSegura(idSala)
+			sala.TemCatraca = true
 			sala.UltimoEvento = evento
 		}
 
 		// RECEBEU CONFIRMAÇÃO DO ATUADOR (Ex: ACK|AC|SALA_1|LIGADO ou ACK|LED|SALA_1|LIGADO)
 		if tipoMsg == "ACK" && len(partes) >= 4 {
-			tipoAtuador := partes[1] // AC ou LED
-			idSala := partes[2]      // SALA_1
-			acao := partes[3]        // LIGADO ou DESLIGADO
+			tipoAtuador := partes[1]
+			idSala := partes[2]
+			acao := partes[3]
 
 			sala := getSalaSegura(idSala)
 
 			if tipoAtuador == "AC" {
+				sala.TemAC = true
 				sala.ArLigado = (acao == "LIGADO")
 			} else if tipoAtuador == "LED" {
+				sala.TemLampada = true
 				sala.LampadaLigada = (acao == "LIGADO")
 			}
+		}
+
+		if tipoMsg == "ERRO" && len(partes) >= 3 {
+			origem := partes[1]  // De onde veio o erro (GATEWAY, AC ou LED)
+			detalhe := partes[2] // O texto do erro
+
+			// Dá um aviso visual no terminal
+			fmt.Printf("\n❌ [FALHA DE COMANDO - %s] %s\n", origem, detalhe)
+
+			// Reimprimimos a linha do menu para não quebrar o visual da tela
+			fmt.Print("Escolha uma opção: ")
 		}
 
 		mu.Unlock()
 	}
 }
 
-// avaliarModoAutomatico executa a regra de negócio.
-// ATENÇÃO: Esta função pressupõe que o Mutex já está trancado por quem a chamou.
 func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	if !sala.ModoAuto {
-		return // Se estiver no manual, o cérebro não faz nada
+		return
 	}
 
 	limiteSuperior := sala.TemperaturaAlvo + 1.0
 	limiteInferior := sala.TemperaturaAlvo - 1.0
 
-	// Se aqueceu demais e o ar está desligado -> Manda Ligar
 	if sala.TemperaturaAtual >= limiteSuperior && !sala.ArLigado {
 		fmt.Fprintf(conn, "AC_%s|LIGAR\n", id)
 	}
 
-	// Se arrefeceu demais e o ar está ligado -> Manda Desligar
 	if sala.TemperaturaAtual <= limiteInferior && sala.ArLigado {
 		fmt.Fprintf(conn, "AC_%s|DESLIGAR\n", id)
 	}
 }
 
-// FUNÇÃO VISUAL: Imprime o estado de todas as salas no ecrã
+// FUNÇÃO VISUAL: Imprime o estado de forma dinâmica (Só mostra o que existe!)
 func imprimirPainel() {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -249,23 +262,51 @@ func imprimirPainel() {
 	}
 
 	for id, sala := range salas {
-		statusAr := "🔴 DESLIGADO"
-		if sala.ArLigado {
-			statusAr = "🟢 LIGADO"
+		var blocos []string // Lista para juntar as informações ativas
+
+		// Só mostra Temperatura e Alvo se existir um sensor a enviar dados
+		if sala.TemSensorTemp {
+			blocos = append(blocos, fmt.Sprintf("🌡️ Temp: %.1f°C", sala.TemperaturaAtual))
+			blocos = append(blocos, fmt.Sprintf("🎯 Alvo: %.1f°C", sala.TemperaturaAlvo))
+
+			// Só faz sentido mostrar Modo Automático se a sala tiver Temperatura
+			modo := "✋ MANUAL"
+			if sala.ModoAuto {
+				modo = "🤖 AUTO"
+			}
+			blocos = append(blocos, fmt.Sprintf("⚙️ Modo: %s", modo))
 		}
 
-		statusLampada := "🌑 APAGADA"
-		if sala.LampadaLigada {
-			statusLampada = "💡 ACESA"
+		// Só mostra Ar-Condicionado se um responder
+		if sala.TemAC {
+			statusAr := "🔴 DESLIGADO"
+			if sala.ArLigado {
+				statusAr = "🟢 LIGADO"
+			}
+			blocos = append(blocos, fmt.Sprintf("❄️ Ar: %s", statusAr))
 		}
 
-		modo := "✋ MANUAL"
-		if sala.ModoAuto {
-			modo = "🤖 AUTO"
+		// Só mostra Lâmpada se uma responder
+		if sala.TemLampada {
+			statusLampada := "🌑 APAGADA"
+			if sala.LampadaLigada {
+				statusLampada = "💡 ACESA"
+			}
+			blocos = append(blocos, fmt.Sprintf("💡 Lâmpada: %s", statusLampada))
 		}
 
-		fmt.Printf("📍 [%s] Temp: %.1f°C | Alvo: %.1f°C | Ar: %s | Lâmpada: %s | Modo: %s | Info Extra: %s\n",
-			id, sala.TemperaturaAtual, sala.TemperaturaAlvo, statusAr, statusLampada, modo, sala.UltimoEvento)
+		// Só mostra Eventos se for uma sala de Catraca/NFC
+		if sala.TemCatraca {
+			blocos = append(blocos, fmt.Sprintf("🪪 Acesso: %s", sala.UltimoEvento))
+		}
+
+		// Caso os dados ainda estejam a chegar e não haja flags
+		if len(blocos) == 0 {
+			blocos = append(blocos, "⏳ A aguardar identificação dos dispositivos...")
+		}
+
+		// Imprime o ID da sala numa linha e os dados identados abaixo
+		fmt.Printf("📍 [%s]\n   ↳ %s\n\n", id, strings.Join(blocos, " | "))
 	}
 	fmt.Println("===============================")
 }
