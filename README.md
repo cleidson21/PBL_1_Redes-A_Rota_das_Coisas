@@ -1,93 +1,113 @@
 # PBL 1 - Redes: A Rota das Coisas
 
-Projeto da disciplina de **Conectividade e Concorrencia** com arquitetura IoT distribuida baseada no padrao de **Message Broker** usando **Go + UDP/TCP + Docker**.
+Projeto da disciplina de **Conectividade e Concorrencia** com arquitetura IoT distribuida baseada em **Message Broker**, usando **Go + UDP/TCP + Docker**.
 
-> **Arquitetura descentralizada:** o Integrador atua como um roteador de mensagens (Gateway/Broker) totalmente cego e escalavel. A logica de negocio (cerebro) foi movida para o Cliente. O sistema suporta a adicao dinamica de multiplos Sensores (UDP/TCP) e multiplos Atuadores polimorficos usando a mesma base de codigo.
+> **Atualizacao da arquitetura:** a implementacao atual separa os atuadores em dois servicos independentes (`atuador_ac` e `atuador_led`), mantendo o Integrador como gateway cego e o Cliente como cerebro da logica de negocio.
 
 ## Topicos
 
 - [Visao Geral](#visao-geral)
-- [Arquitetura do Message Broker](#arquitetura-do-message-broker)
+- [Arquitetura Atual](#arquitetura-atual)
 - [Componentes do Sistema](#componentes-do-sistema)
+- [Protocolo de Mensagens](#protocolo-de-mensagens)
 - [Mapeamento de Portas](#mapeamento-de-portas)
 - [Estrutura do Projeto](#estrutura-do-projeto)
-- [Como Executar (Local com Docker Compose)](#como-executar-local-com-docker-compose)
-- [Como Executar (Rede Distribuida)](#como-executar-rede-distribuida)
-- [A Interface do Cliente (Cerebro)](#a-interface-do-cliente-cerebro)
-- [Comandos de Manutencao Docker](#comandos-de-manutencao-docker)
+- [Como Executar com Docker Compose](#como-executar-com-docker-compose)
+- [Como Executar em Rede Distribuida](#como-executar-em-rede-distribuida)
+- [Interface do Cliente (CLI)](#interface-do-cliente-cli)
+- [Comandos Docker Uteis](#comandos-docker-uteis)
 - [Fluxo de Desenvolvimento](#fluxo-de-desenvolvimento)
 
 ---
 
 ## Visao Geral
 
-A arquitetura resolve o problema do "Ponto Unico de Falha" e o acoplamento, separando infraestrutura de rede da regra de negocio:
+A solucao separa infraestrutura e regra de negocio:
 
-- **Sensores (UDP/TCP):** coletam dados de forma ativa (streaming continuo) ou reativa (eventos) e injetam na rede.
-- **Integrador (Broker):** agregador passivo e roteador de rede. Nao contem estado de negocio. Apenas recebe de uma porta e repassa para a porta correta.
-- **Atuadores (Polimorficos):** clientes TCP que se conectam ao Integrador e aguardam ordens (`LIGAR`, `DESLIGAR`, `SET_TEMP`). Avisam o sucesso da operacao via respostas `ACK`.
-- **Cliente (Cerebro + CLI):** processa leituras de todos os sensores simultaneamente. Executa histerese termica (modo automatico) e roteia comandos manuais.
+- **Sensores (`sensor_udp`, `sensor_tcp`)**: publicam dados para o Integrador.
+- **Integrador (`integrador`)**: roteia mensagens entre sensores, clientes e atuadores.
+- **Atuador de Ar (`atuador_ac`)**: recebe comandos de climatizacao (`LIGAR`, `DESLIGAR`, `SET_TEMP`).
+- **Atuador de Lampada (`atuador_led`)**: recebe comandos de iluminacao (`LIGAR`, `DESLIGAR`).
+- **Cliente (`cliente`)**: mantem estado por sala, aplica histerese termica e oferece menu manual.
 
 ---
 
-## Arquitetura do Message Broker
+## Arquitetura Atual
 
 ```mermaid
 flowchart TD
-        S_UDP["Sensor UDP<br/>(Temperatura continua)"]
-        S_TCP["Sensor TCP<br/>(Catraca/NFC)"]
-
-        I{"Integrador Gateway<br/>(Message Broker)"}
-
-        C["Cliente / Dashboard<br/>(Logica e Histerese)"]
-
-        A_AC["Atuador<br/>(Ar-Condicionado)"]
-        A_LED["Atuador<br/>(Lampada)"]
+        S_UDP["sensor_udp\n(telemetria)"]
+        S_TCP["sensor_tcp\n(eventos NFC)"]
+        I{"integrador\nMessage Broker"}
+        C["cliente\nCLI + logica"]
+        A_AC["atuador_ac"]
+        A_LED["atuador_led"]
 
         S_UDP -- "UDP 8080" --> I
         S_TCP -- "TCP 8081" --> I
         I <== "TCP 8083" ==> C
         A_AC -- "TCP 8082" --> I
         A_LED -- "TCP 8082" --> I
-
-        style I fill:#f96,stroke:#333,stroke-width:4px
-        style C fill:#4CAF50,color:#fff
 ```
 
-**Grande sacada (inversao de controle):** as setas dos Atuadores apontam para o Integrador. Os Atuadores sao clientes TCP que "discam" para o servidor central, contornando bloqueios comuns de firewall em redes IoT.
+O Integrador apenas encaminha mensagens. Toda regra de automacao fica no Cliente.
 
 ---
 
 ## Componentes do Sistema
 
-1. **Sensores**
-     - `sensor_udp`: envia telemetria (ex.: temperatura) em loop infinito sem confirmacao de entrega. Leve e rapido.
-     - `sensor_tcp`: simula eventos garantidos (ex.: passagem de cracha NFC em catraca) usando conexao TCP persistente.
-2. **Atuador (Polimorfico)**
-     - Existe apenas um codigo-fonte de atuador.
-     - O comportamento (Ar-Condicionado ou Lampada) e injetado via variavel de ambiente `ATUADOR_TIPO`.
-     - Ao conectar, envia uma mensagem de registro ao Integrador.
-3. **Integrador (Roteador)**
-     - Mantem "listas telefonicas" (maps em Go com protecao `sync.Mutex`) das conexoes ativas.
-     - Tudo que entra nas portas de sensores (`8080` e `8081`) sofre broadcast para os clientes (`8083`).
-     - Tudo que entra da porta de cliente (`8083`) e processado para encontrar o tunel de rede correto e ser roteado pontualmente ao atuador (`8082`).
-4. **Cliente (Cerebro)**
-     - Executa duas trilhas em paralelo (goroutines):
-     - Ouvinte oculto: cataloga dados vindos do Integrador, atualiza mapa de salas e roda a logica automatica.
-     - Interface CLI: exibe menu interativo para intervencao manual.
+1. **`sensor_udp`**
+- Envia leituras continuamente em UDP.
+- Formato enviado: `TIPO|SALA|VALOR` (ex.: `T|SALA_1|25.50`).
+
+2. **`sensor_tcp`**
+- Envia eventos via conexao TCP persistente.
+- Formato enviado: `NFC|CATRACA_ENTRADA|USER_4091`.
+
+3. **`integrador`**
+- Mantem lista de atuadores registrados por chave (`AC_SALA_1`, `LED_SALA_1`, etc.).
+- Prefixa dados de sensores para os clientes:
+    - `TLM|...` para telemetria
+    - `EVT|...` para eventos
+- Roteia comandos vindos do cliente no formato `ID_ATUADOR|COMANDO`.
+
+4. **`atuador_ac`**
+- Registra-se como `REG|AC|<SALA>`.
+- Responde com `ACK|AC|<SALA>|<STATUS>`.
+
+5. **`atuador_led`**
+- Registra-se como `REG|LED|<SALA>`.
+- Responde com `ACK|LED|<SALA>|<STATUS>`.
+
+6. **`cliente`**
+- Gerencia dinamicamente um mapa de salas.
+- Controle manual de ar e lampada.
+- Controle automatico com histerese (`alvo +/- 1.0`) para o ar-condicionado.
+
+---
+
+## Protocolo de Mensagens
+
+Mensagens relevantes na implementacao atual:
+
+- **Sensor UDP -> Integrador**: `T|SALA_1|25.50`
+- **Integrador -> Cliente (telemetria)**: `TLM|T|SALA_1|25.50`
+- **Sensor TCP -> Integrador**: `NFC|CATRACA_ENTRADA|USER_4091`
+- **Integrador -> Cliente (evento)**: `EVT|NFC|CATRACA_ENTRADA|USER_4091`
+- **Atuador -> Integrador (registro)**: `REG|AC|SALA_1` ou `REG|LED|SALA_1`
+- **Cliente -> Integrador (comando)**: `AC_SALA_1|LIGAR`, `LED_SALA_1|DESLIGAR`, `AC_SALA_1|SET_TEMP 22.5`
+- **Atuador -> Integrador -> Cliente (ack)**: `ACK|AC|SALA_1|LIGADO`, `ACK|LED|SALA_1|DESLIGADO`
 
 ---
 
 ## Mapeamento de Portas
 
-O Integrador e o unico servico que expoe portas. Todos os outros sao clientes que "discam" para ele.
-
-| Protocolo | Porta exposta | Funcao no Integrador |
+| Protocolo | Porta | Uso |
 | --- | --- | --- |
-| UDP | `8080` | Ouve sensores de temperatura continuos |
-| TCP | `8081` | Ouve sensores de eventos (NFC/catracas) |
-| TCP | `8082` | Ouve atuadores e repassa comandos para eles |
-| TCP | `8083` | Ouve clientes (paineis) e repassa os dados da rede |
+| UDP | `8080` | Entrada de sensores UDP |
+| TCP | `8081` | Entrada de sensores TCP |
+| TCP | `8082` | Registro e controle de atuadores |
+| TCP | `8083` | Conexao de clientes/painel |
 
 ---
 
@@ -97,72 +117,73 @@ O Integrador e o unico servico que expoe portas. Todos os outros sao clientes qu
 .
 ├── docker-compose.yml
 ├── README.md
-├── sensor_udp/     (Telemetria em massa via UDP)
+├── integrador/
 │   ├── Dockerfile
+│   ├── go.mod
 │   └── main.go
-├── sensor_tcp/     (Eventos criticos via TCP)
+├── cliente/
 │   ├── Dockerfile
+│   ├── go.mod
 │   └── main.go
-├── atuador/        (Codigo polimorfico TCP)
+├── sensor_udp/
 │   ├── Dockerfile
+│   ├── go.mod
 │   └── main.go
-├── cliente/        (Logica de negocio e CLI)
+├── sensor_tcp/
 │   ├── Dockerfile
+│   ├── go.mod
 │   └── main.go
-└── integrador/     (Message Broker multi-thread)
+├── atuador_ac/
+│   ├── Dockerfile
+│   ├── go.mod
+│   └── main.go
+└── atuador_led/
         ├── Dockerfile
+        ├── go.mod
         └── main.go
 ```
 
 ---
 
-## Como Executar (Local com Docker Compose)
-
-Esta e a forma mais facil de validar o ecossistema rodando.
-
-1. **Clonar e subir**
+## Como Executar com Docker Compose
 
 ```bash
 git clone https://github.com/cleidson21/PBL_1_Redes-A_Rota_das_Coisas.git
 cd PBL_1_Redes-A_Rota_das_Coisas
 
-# Compila as imagens e sobe toda a rede
+# sobe todo o ecossistema
 docker compose up -d --build
 ```
 
-2. **Acessar o painel interativo (Cliente)**
-
-Como o cliente precisa de entrada de teclado, use:
+Abrir interface do cliente:
 
 ```bash
 docker attach cliente_dashboard
 ```
 
-Para sair da tela do cliente sem matar o programa, pressione `Ctrl+P` e depois `Ctrl+Q`.
+Sair sem derrubar o container: `Ctrl+P` e depois `Ctrl+Q`.
 
-3. **Monitorar logs (opcional)**
+Logs uteis:
 
 ```bash
 docker logs -f integrador_gateway
 docker logs -f sensor_temp_sala1
+docker logs -f sensor_nfc_entrada
 docker logs -f atuador_ar_sala1
+docker logs -f atuador_lampada_sala1
 ```
 
 ---
 
-## Como Executar (Rede Distribuida)
+## Como Executar em Rede Distribuida
 
-Para um cenario realista, distribuindo a carga em 3 computadores.
+Exemplo em 3 maquinas:
 
-Identifique os IPs:
+- **PC 1 (Gateway)**: Integrador
+- **PC 2 (Borda)**: Sensores e atuadores
+- **PC 3 (Operacao)**: Cliente
 
-- **PC 1 (Gateway):** anote o IP (`IP_GATEWAY`).
-- **PC 2 (Borda):** rodara sensores e atuadores.
-- **PC 3 (Usuario):** rodara o painel do cliente.
-
-1. **No PC 1 (Gateway Central)**
-
-Suba o Integrador expondo todas as portas necessarias:
+1. **PC 1 - Integrador**
 
 ```bash
 docker run -d --name integrador_pbl \
@@ -170,26 +191,39 @@ docker run -d --name integrador_pbl \
     cleidsonramos/integrador:v1
 ```
 
-2. **No PC 2 (Dispositivos de Borda)**
-
-Suba os dispositivos apontando as variaveis de ambiente para o PC 1:
+2. **PC 2 - Dispositivos**
 
 ```bash
-# Sensor de temperatura
+# Sensor UDP
 docker run -d --name sensor_udp_pbl \
     -e SERVER_ADDR="<IP_GATEWAY>:8080" \
+    -e SENSOR_ID="SALA_1" \
+    -e SENSOR_TIPO="T" \
     cleidsonramos/sensor_udp:v1
 
-# Atuador do ar-condicionado
+# Sensor TCP
+docker run -d --name sensor_tcp_pbl \
+    -e SERVER_ADDR="<IP_GATEWAY>:8081" \
+    -e SENSOR_ID="CATRACA_ENTRADA" \
+    -e SENSOR_TIPO="NFC" \
+    cleidsonramos/sensor_tcp:v1
+
+# Atuador AC
 docker run -d --name atuador_ac_pbl \
     -e INTEGRADOR_ADDR="<IP_GATEWAY>:8082" \
-    -e ATUADOR_TIPO="AR_CONDICIONADO" \
-    cleidsonramos/atuador:v1
+    -e ATUADOR_ID="SALA_1" \
+    -e ATUADOR_TIPO="AC" \
+    cleidsonramos/atuador_ac:v1
+
+# Atuador LED
+docker run -d --name atuador_led_pbl \
+    -e INTEGRADOR_ADDR="<IP_GATEWAY>:8082" \
+    -e ATUADOR_ID="SALA_1" \
+    -e ATUADOR_TIPO="LED" \
+    cleidsonramos/atuador_led:v1
 ```
 
-3. **No PC 3 (Operador)**
-
-Rode o painel de forma interativa apontando para o PC 1:
+3. **PC 3 - Cliente**
 
 ```bash
 docker run -it --name cliente_pbl \
@@ -199,9 +233,7 @@ docker run -it --name cliente_pbl \
 
 ---
 
-## A Interface do Cliente (Cerebro)
-
-O menu interativo prove as seguintes opcoes (geridas dinamicamente via map):
+## Interface do Cliente (CLI)
 
 ```text
 ===================================
@@ -216,20 +248,27 @@ PAINEL MULTI-SALA IoT
 ===================================
 ```
 
-**Auto-descobrimento:** se um sensor da `SALA_2` for ligado na rede, a opcao `[1]` detecta automaticamente sua existencia e passa a aplicar histerese termica para essa nova sala sem necessidade de recompilacao.
+Detalhes importantes:
+
+- Comando manual de ar desativa o modo automatico da sala.
+- Ajuste de alvo envia `SET_TEMP` para o atuador AC e atualiza o estado local.
+- Novas salas sao criadas automaticamente quando chegam dados com novo `ID`.
 
 ---
 
-## Comandos de Manutencao Docker
+## Comandos Docker Uteis
 
 ```bash
-# Ver servicos em execucao
+# listar containers
 docker ps
 
-# Desligar a rede inteira local
+# parar e remover stack local
 docker compose down
 
-# Apagar imagens orfas e liberar espaco em disco
+# reconstruir apenas um servico
+docker compose up -d --build cliente
+
+# limpeza geral
 docker system prune -a
 ```
 
@@ -237,10 +276,24 @@ docker system prune -a
 
 ## Fluxo de Desenvolvimento
 
-Caso voce modifique o codigo fonte em Go, gere o build das novas imagens substituindo `v1` por versoes subsequentes:
+Rebuild de imagens por servico:
 
 ```bash
-# Exemplo: recompilar o atuador e publicar no Docker Hub
-docker build -t cleidsonramos/atuador:v2 ./atuador
-docker push cleidsonramos/atuador:v2
+docker build -t cleidsonramos/integrador:v2 ./integrador
+docker build -t cleidsonramos/cliente:v2 ./cliente
+docker build -t cleidsonramos/sensor_udp:v2 ./sensor_udp
+docker build -t cleidsonramos/sensor_tcp:v2 ./sensor_tcp
+docker build -t cleidsonramos/atuador_ac:v2 ./atuador_ac
+docker build -t cleidsonramos/atuador_led:v2 ./atuador_led
+```
+
+Publicacao (opcional):
+
+```bash
+docker push cleidsonramos/integrador:v2
+docker push cleidsonramos/cliente:v2
+docker push cleidsonramos/sensor_udp:v2
+docker push cleidsonramos/sensor_tcp:v2
+docker push cleidsonramos/atuador_ac:v2
+docker push cleidsonramos/atuador_led:v2
 ```
