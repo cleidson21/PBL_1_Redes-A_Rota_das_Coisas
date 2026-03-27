@@ -178,7 +178,7 @@ func listenClientesTCP() {
 func manipularCliente(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 
-	// O Cliente enviará comandos no formato: ID_ATUADOR|COMANDO (Ex: AC_SALA_1|LIGAR)
+	// O Cliente enviará comandos no formato: ID_ATUADOR|COMANDO ou SYNC|COMANDO
 	for scanner.Scan() {
 		mensagem := strings.TrimSpace(scanner.Text())
 		partes := strings.SplitN(mensagem, "|", 2) // Corta apenas no primeiro "|"
@@ -186,6 +186,15 @@ func manipularCliente(conn net.Conn) {
 		if len(partes) == 2 {
 			idDestino := partes[0]
 			comando := partes[1]
+
+			// ========================================================
+			// NOVO: Canal de Sincronização entre Clientes (State Sync)
+			// ========================================================
+			if idDestino == "SYNC" {
+				fmt.Printf("🔄 [State Sync] Espalhando sincronização: %s\n", comando)
+				broadcastParaClientes(fmt.Sprintf("SYNC|%s", comando))
+				continue // Pula o resto da lógica e NÃO tenta procurar um atuador chamado "SYNC"
+			}
 
 			// Busca o túnel TCP daquele atuador específico na Lista Telefônica
 			muAtuadores.RLock()

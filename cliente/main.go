@@ -8,23 +8,27 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ESTRUTURA DE DADOS (O "Cérebro" do Sistema)
 type EstadoSala struct {
-	TemSensorTemp    bool // Descobre se a sala tem termômetro
-	TemperaturaAtual float64
-	TemperaturaAlvo  float64
+	// Flags e Timestamps para saber quando os dispositivos "morreram"
+	TemSensorTemp     bool
+	TemperaturaAtual  float64
+	TemperaturaAlvo   float64
+	UltimaLeituraTemp time.Time // Guarda o último sinal de vida do termômetro
 
-	TemAC    bool // Descobre se a sala tem Ar-Condicionado
+	TemAC    bool
 	ArLigado bool
 	ModoAuto bool
 
-	TemLampada    bool // Descobre se a sala tem Lâmpada
+	TemLampada    bool
 	LampadaLigada bool
 
-	TemCatraca   bool // Descobre se é um ambiente com Catraca/NFC
-	UltimoEvento string
+	TemCatraca           bool
+	UltimoEvento         string
+	UltimaLeituraCatraca time.Time // Guarda o último sinal de vida da catraca
 }
 
 // O Dicionário (Map) que guarda o estado de cada sala dinamicamente
@@ -63,8 +67,11 @@ func main() {
 
 	fmt.Println("✅ Ligado com sucesso ao Gateway Integrador!")
 
-	// INICIA O CÉREBRO EM SEGUNDO PLANO
+	// 1. INICIA O CÉREBRO EM SEGUNDO PLANO
 	go ouvirRedeEProcessarLogica(conn)
+
+	// 2. INICIA O "FAXINEIRO" DE DISPOSITIVOS FANTASMAS (Garbage Collector)
+	go limparDispositivosInativos()
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -101,8 +108,10 @@ func main() {
 			sala.ModoAuto = false
 			mu.Unlock()
 
+			// SINCRONIZA O RESTO DA REDE QUE ENTROU EM MODO MANUAL
+			fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
 			fmt.Fprintf(conn, "AC_%s|%s\n", idSala, acao)
-			fmt.Println("⏳ Comando enviado para o Ar-Condicionado! (Modo Auto desativado)")
+			fmt.Println("⏳ Comando enviado! (Sincronizando modo MANUAL com a rede...)")
 
 		case "3":
 			fmt.Print("Digite o NOME DA SALA (ex: SALA_1): ")
@@ -116,8 +125,12 @@ func main() {
 			mu.Unlock()
 
 			if statusAuto {
+				// AVISA TODOS OS OUTROS CLIENTES
+				fmt.Fprintf(conn, "SYNC|%s|AUTO\n", idSala)
 				fmt.Println("✅ Modo Automático ATIVADO para a sala", idSala)
 			} else {
+				// AVISA TODOS OS OUTROS CLIENTES
+				fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
 				fmt.Println("🛑 Modo Automático DESATIVADO para a sala", idSala)
 			}
 
@@ -179,7 +192,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 
 		mu.Lock()
 
-		// RECEBEU TELEMETRIA (Ex: TLM|T|SALA_1|25.5)
+		// 1. RECEBEU TELEMETRIA (Sensor UDP)
 		if tipoMsg == "TLM" && partes[1] == "T" {
 			idSala := partes[2]
 			tempAtual, _ := strconv.ParseFloat(partes[3], 64)
@@ -187,11 +200,12 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala := getSalaSegura(idSala)
 			sala.TemSensorTemp = true
 			sala.TemperaturaAtual = tempAtual
+			sala.UltimaLeituraTemp = time.Now() // Atualiza o sinal de vida!
 
 			avaliarModoAutomatico(idSala, sala, conn)
 		}
 
-		// RECEBEU EVENTO (Ex: EVT|NFC|CATRACA_ENTRADA|USER_4091)
+		// 2. RECEBEU EVENTO (Sensor TCP / Catraca)
 		if tipoMsg == "EVT" {
 			idSala := partes[2]
 			evento := partes[3]
@@ -199,9 +213,10 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala := getSalaSegura(idSala)
 			sala.TemCatraca = true
 			sala.UltimoEvento = evento
+			sala.UltimaLeituraCatraca = time.Now() // Atualiza o sinal de vida!
 		}
 
-		// RECEBEU CONFIRMAÇÃO DO ATUADOR (Ex: ACK|AC|SALA_1|LIGADO ou ACK|LED|SALA_1|LIGADO)
+		// 3. RECEBEU CONFIRMAÇÃO DO ATUADOR (ACK)
 		if tipoMsg == "ACK" && len(partes) >= 4 {
 			tipoAtuador := partes[1]
 			idSala := partes[2]
@@ -218,36 +233,75 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			}
 		}
 
-		// RECEBEU MENSAGEM DE ERRO
+		// 4. RECEBEU SINCRONIZAÇÃO DE OUTRO CLIENTE (Evita o Split-Brain)
+		if tipoMsg == "SYNC" && len(partes) >= 3 {
+			idSala := partes[1]
+			modo := partes[2] // "AUTO" ou "MANUAL"
+
+			sala := getSalaSegura(idSala)
+			sala.ModoAuto = (modo == "AUTO")
+		}
+
+		// 5. RECEBEU ERRO DE EQUIPAMENTO (Disjuntor e Limpeza de Fantasmas)
 		if tipoMsg == "ERRO" && len(partes) >= 3 {
 			origem := partes[1]  // De onde veio o erro (GATEWAY, AC ou LED)
-			detalhe := partes[2] // Ex: "Atuador AC_SALA_1 nao encontrado ou offline"
+			detalhe := partes[2] // O texto do erro
 
 			fmt.Printf("\n❌ [FALHA DE COMANDO - %s] %s\n", origem, detalhe)
 
-			// Desarma o automático se houver falha de comando para um atuador, para evitar loops perigosos
 			if strings.HasPrefix(detalhe, "Atuador ") {
-				pedacos := strings.Split(detalhe, " ") // Divide a frase nos espaços
+				pedacos := strings.Split(detalhe, " ")
 				if len(pedacos) >= 2 {
-					idAtuador := pedacos[1] // Pega a palavra "AC_SALA_1"
-
-					// Extrai apenas o nome da sala (tira o AC_ ou LED_)
+					idAtuador := pedacos[1] // Ex: AC_SALA_1
 					idSala := strings.TrimPrefix(idAtuador, "AC_")
 					idSala = strings.TrimPrefix(idSala, "LED_")
 
 					sala := getSalaSegura(idSala)
 
+					// MARCA O ATUADOR COMO OFFLINE/INEXISTENTE
+					if strings.HasPrefix(idAtuador, "AC_") {
+						sala.TemAC = false
+					} else if strings.HasPrefix(idAtuador, "LED_") {
+						sala.TemLampada = false
+					}
+
+					// SE O ERRO CAUSOU DESARME, AVISA A REDE INTEIRA!
 					if sala.ModoAuto {
 						sala.ModoAuto = false
-						fmt.Printf("🛑 MODO AUTOMÁTICO da [%s] foi DESATIVADO por segurança.\n", idSala)
+						fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
+						fmt.Printf("🛑 MODO AUTOMÁTICO da [%s] foi DESATIVADO na rede por segurança.\n", idSala)
 					}
 				}
 			}
 
-			// Reimprime a linha do menu para não quebrar o visual da tela
 			fmt.Print("Escolha uma opção: ")
 		}
 
+		mu.Unlock()
+	}
+}
+
+// O FAXINEIRO (Garbage Collector de Dispositivos Offline)
+func limparDispositivosInativos() {
+	for {
+		time.Sleep(3 * time.Second) // Varre a memória a cada 3 segundos
+
+		mu.Lock()
+		for id, sala := range salas {
+			// Se o sensor de temperatura não manda nada há mais de 5 segundos, considera offline
+			if sala.TemSensorTemp && time.Since(sala.UltimaLeituraTemp) > 5*time.Second {
+				sala.TemSensorTemp = false
+			}
+
+			// A catraca é mais lenta, damos 30 segundos de tolerância antes de a esconder
+			if sala.TemCatraca && time.Since(sala.UltimaLeituraCatraca) > 30*time.Second {
+				sala.TemCatraca = false
+			}
+
+			if !sala.TemSensorTemp && !sala.TemCatraca && !sala.TemAC && !sala.TemLampada {
+				delete(salas, id)
+			}
+		}
 		mu.Unlock()
 	}
 }
@@ -276,19 +330,17 @@ func imprimirPainel() {
 
 	fmt.Println("\n📊 === STATUS ATUAL DA REDE ===")
 	if len(salas) == 0 {
-		fmt.Println("Nenhum dado recebido ainda. Aguarde pelos sensores...")
+		fmt.Println("Nenhum dado recebido ainda. Aguarde pelos sensores ou envie comandos...")
 		return
 	}
 
 	for id, sala := range salas {
-		var blocos []string // Lista para juntar as informações ativas
+		var blocos []string
 
-		// Só mostra Temperatura e Alvo se existir um sensor a enviar dados
 		if sala.TemSensorTemp {
 			blocos = append(blocos, fmt.Sprintf("🌡️ Temp: %.1f°C", sala.TemperaturaAtual))
 			blocos = append(blocos, fmt.Sprintf("🎯 Alvo: %.1f°C", sala.TemperaturaAlvo))
 
-			// Só faz sentido mostrar Modo Automático se a sala tiver Temperatura
 			modo := "✋ MANUAL"
 			if sala.ModoAuto {
 				modo = "🤖 AUTO"
@@ -296,7 +348,6 @@ func imprimirPainel() {
 			blocos = append(blocos, fmt.Sprintf("⚙️ Modo: %s", modo))
 		}
 
-		// Só mostra Ar-Condicionado se um responder
 		if sala.TemAC {
 			statusAr := "🔴 DESLIGADO"
 			if sala.ArLigado {
@@ -305,7 +356,6 @@ func imprimirPainel() {
 			blocos = append(blocos, fmt.Sprintf("❄️ Ar: %s", statusAr))
 		}
 
-		// Só mostra Lâmpada se uma responder
 		if sala.TemLampada {
 			statusLampada := "🌑 APAGADA"
 			if sala.LampadaLigada {
@@ -314,17 +364,16 @@ func imprimirPainel() {
 			blocos = append(blocos, fmt.Sprintf("💡 Lâmpada: %s", statusLampada))
 		}
 
-		// Só mostra Eventos se for uma sala de Catraca/NFC
 		if sala.TemCatraca {
 			blocos = append(blocos, fmt.Sprintf("🪪 Acesso: %s", sala.UltimoEvento))
 		}
 
-		// Caso os dados ainda estejam a chegar e não haja flags
+		// Graças ao Faxineiro (limparDispositivosInativos), se isto aparecer é porque
+		// a sala está a ser construída ou aguarda um ACK. E se não vier nada, ela some!
 		if len(blocos) == 0 {
 			blocos = append(blocos, "⏳ A aguardar identificação dos dispositivos...")
 		}
 
-		// Imprime o ID da sala numa linha e os dados identados abaixo
 		fmt.Printf("📍 [%s]\n   ↳ %s\n\n", id, strings.Join(blocos, " | "))
 	}
 	fmt.Println("===============================")
