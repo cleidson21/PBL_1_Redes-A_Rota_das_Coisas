@@ -18,7 +18,7 @@ for i in $(seq 1 $QTD_SALAS); do
     # 2. Sensor TCP
     docker run -d --name "stress_sensor_tcp_$i" \
         -e SERVER_ADDR="$IP_GATEWAY:8081" \
-        -e SENSOR_ID="CATRACA_ENTRADA_$i" \
+        -e SENSOR_ID="ENTRADA_$i" \
         -e SENSOR_TIPO="NFC" \
         cleidsonramos/sensor_tcp:v1 > /dev/null
 done

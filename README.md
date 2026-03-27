@@ -14,6 +14,7 @@ Projeto da disciplina de **Conectividade e Concorrencia** com arquitetura IoT di
 - [Estrutura do Projeto](#estrutura-do-projeto)
 - [Como Executar com Docker Compose](#como-executar-com-docker-compose)
 - [Como Executar em Rede Distribuida](#como-executar-em-rede-distribuida)
+- [Testes de Stress com Scripts .sh](#testes-de-stress-com-scripts-sh)
 - [Interface do Cliente (CLI)](#interface-do-cliente-cli)
 - [Comandos Docker Uteis](#comandos-docker-uteis)
 - [Fluxo de Desenvolvimento](#fluxo-de-desenvolvimento)
@@ -229,6 +230,62 @@ docker run -d --name atuador_led_pbl \
 docker run -it --name cliente_pbl \
     -e INTEGRADOR_ADDR="<IP_GATEWAY>:8083" \
     cleidsonramos/cliente:v1
+```
+
+---
+
+## Testes de Stress com Scripts .sh
+
+O projeto possui scripts para facilitar testes de carga e cenarios distribuidos:
+
+Antes de executar, ajuste o valor de `IP_GATEWAY` nos scripts de stress para o IP do host onde o Integrador esta rodando.
+
+- `run_integrador.sh`: inicia o Integrador com as portas `8080/udp`, `8081/tcp`, `8082/tcp` e `8083/tcp`.
+- `stress_sensores.sh`: sobe sensores UDP + TCP em lote.
+- `stress_atuadores.sh`: sobe atuadores AC + LED em lote.
+- `stress_clientes.sh`: sobe clientes em lote.
+- `cleanup.sh`: remove os containers de stress (`stress_*`).
+
+### Sequencia recomendada
+
+```bash
+# 1) iniciar gateway
+bash run_integrador.sh
+
+# 2) iniciar sensores
+bash stress_sensores.sh
+
+# 3) iniciar atuadores
+bash stress_atuadores.sh
+
+# 4) iniciar clientes
+bash stress_clientes.sh
+```
+
+### Cenario minimo (quantidade 1)
+
+Se quiser usar os mesmos scripts para subir um ambiente minimo (1 sala), altere em cada script de stress:
+
+```bash
+QTD_SALAS=1
+```
+
+Com `QTD_SALAS=1`, os scripts sobem:
+
+- 1 sensor UDP + 1 sensor TCP
+- 1 atuador AC + 1 atuador LED
+- 1 cliente
+
+Para acompanhar o painel desse cliente:
+
+```bash
+docker attach stress_cliente_1
+```
+
+Para limpar o ambiente de stress:
+
+```bash
+bash cleanup.sh
 ```
 
 ---
