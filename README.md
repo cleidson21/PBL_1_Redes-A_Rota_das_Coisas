@@ -146,7 +146,6 @@ Mensagens relevantes na implementacao atual:
     ├── cleanup.sh
     ├── run_integrador.sh
     ├── stress_atuadores.sh
-    ├── stress_clientes.sh
     └── stress_sensores.sh
 ```
 
@@ -262,8 +261,6 @@ bash stress_sensores.sh
 # 3) iniciar atuadores
 bash stress_atuadores.sh
 
-# 4) iniciar clientes
-bash stress_clientes.sh
 ```
 
 ### Cenario minimo (quantidade 1)
@@ -280,7 +277,7 @@ Com `QTD_SALAS=1`, os scripts sobem:
 - 1 atuador AC + 1 atuador LED
 - 1 cliente
 
-Para acompanhar o painel desse cliente:
+Para acompanhar o painel desse cliente, que precisam ser implementados manualmente por conta do menu interativo:
 
 ```bash
 docker attach stress_cliente_1
