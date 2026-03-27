@@ -269,7 +269,7 @@ docker compose down
 docker compose up -d --build cliente
 
 # limpeza geral
-docker system prune -a
+docker stop $(docker ps -aq) 2>/dev/null; docker system prune -a --volumes -f
 ```
 
 ---
