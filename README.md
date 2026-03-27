@@ -138,10 +138,16 @@ Mensagens relevantes na implementacao atual:
 │   ├── Dockerfile
 │   ├── go.mod
 │   └── main.go
-└── atuador_led/
-        ├── Dockerfile
-        ├── go.mod
-        └── main.go
+├── atuador_led/
+│   ├── Dockerfile
+│   ├── go.mod
+│   └── main.go
+└── arquivos_sh/
+    ├── cleanup.sh
+    ├── run_integrador.sh
+    ├── stress_atuadores.sh
+    ├── stress_clientes.sh
+    └── stress_sensores.sh
 ```
 
 ---
@@ -237,8 +243,6 @@ docker run -it --name cliente_pbl \
 ## Testes de Stress com Scripts .sh
 
 O projeto possui scripts para facilitar testes de carga e cenarios distribuidos:
-
-Antes de executar, ajuste o valor de `IP_GATEWAY` nos scripts de stress para o IP do host onde o Integrador esta rodando.
 
 - `run_integrador.sh`: inicia o Integrador com as portas `8080/udp`, `8081/tcp`, `8082/tcp` e `8083/tcp`.
 - `stress_sensores.sh`: sobe sensores UDP + TCP em lote.
