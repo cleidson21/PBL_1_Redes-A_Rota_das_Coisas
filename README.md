@@ -10,6 +10,7 @@ Projeto da disciplina de **Conectividade e Concorrencia** com arquitetura IoT di
 - [Arquitetura Atual](#arquitetura-atual)
 - [Componentes do Sistema](#componentes-do-sistema)
 - [Protocolo de Mensagens](#protocolo-de-mensagens)
+- [Resiliencia e Tolerancia a Falhas](#resiliencia-e-tolerancia-a-falhas)
 - [Mapeamento de Portas](#mapeamento-de-portas)
 - [Estrutura do Projeto](#estrutura-do-projeto)
 - [Como Executar com Docker Compose](#como-executar-com-docker-compose)
@@ -29,7 +30,7 @@ A solucao separa infraestrutura e regra de negocio:
 - **Integrador (`integrador`)**: roteia mensagens entre sensores, clientes e atuadores.
 - **Atuador de Ar (`atuador_ac`)**: recebe comandos de climatizacao (`LIGAR`, `DESLIGAR`, `SET_TEMP`).
 - **Atuador de Lampada (`atuador_led`)**: recebe comandos de iluminacao (`LIGAR`, `DESLIGAR`).
-- **Cliente (`cliente`)**: mantem estado por sala, aplica histerese termica e oferece menu manual.
+- **Cliente (`cliente`)**: mantem estado por sala, aplica histerese termica, sincroniza estado entre paineis (`SYNC`) e executa limpeza automatica de salas inativas (TTL).
 
 ---
 
@@ -84,6 +85,8 @@ O Integrador apenas encaminha mensagens. Toda regra de automacao fica no Cliente
 - Gerencia dinamicamente um mapa de salas.
 - Controle manual de ar e lampada.
 - Controle automatico com histerese (`alvo +/- 1.0`) para o ar-condicionado.
+- Sincroniza modo/estado entre multiplos clientes via mensagens `SYNC`.
+- Remove salas fantasmas com rotina de garbage collector baseada em TTL (janela de 5 a 30 segundos sem telemetria).
 
 ---
 
@@ -97,7 +100,29 @@ Mensagens relevantes na implementacao atual:
 - **Integrador -> Cliente (evento)**: `EVT|NFC|CATRACA_ENTRADA|USER_4091`
 - **Atuador -> Integrador (registro)**: `REG|AC|SALA_1` ou `REG|LED|SALA_1`
 - **Cliente -> Integrador (comando)**: `AC_SALA_1|LIGAR`, `LED_SALA_1|DESLIGAR`, `AC_SALA_1|SET_TEMP 22.5`
+- **Cliente -> Integrador (state sync)**: `SYNC|SALA_1|AUTO`, `SYNC|SALA_1|MANUAL`, `SYNC|SALA_1|ALVO 22.5`
+- **Integrador -> Clientes (state sync)**: repasse transparente das mensagens `SYNC|...` para evitar split-brain entre paineis.
 - **Atuador -> Integrador -> Cliente (ack)**: `ACK|AC|SALA_1|LIGADO`, `ACK|LED|SALA_1|DESLIGADO`
+
+---
+
+## Resiliencia e Tolerancia a Falhas
+
+As versoes mais recentes do `cliente` adicionam tres mecanismos de robustez para operacao distribuida:
+
+1. **Circuit Breaker (desarme automatico)**
+- Se um atuador falha repetidamente (timeout/erro), o cliente interrompe comandos agressivos para aquela sala por um periodo curto.
+- O objetivo e evitar tempestade de retries, reduzir ruido de rede e impedir oscilacao de estado.
+
+2. **Garbage Collector de Salas (TTL 5-30s)**
+- Cada sala tem carimbo de ultimo heartbeat/telemetria.
+- Se a sala ficar sem atualizacao por tempo configurado (entre **5 e 30 segundos**, conforme ambiente), ela e removida do mapa em memoria.
+- Isso elimina salas fantasmas e trata desconexao de sensores sem intervencao manual.
+
+3. **State Sync entre Clientes (anti split-brain)**
+- Em cenarios com multiplos paineis, cada cliente publica mudancas de modo/estado com `SYNC|<SALA>|<ESTADO>`.
+- Exemplo real: `SYNC|SALA_1|AUTO`.
+- Com esse gossip de estado, todos os paineis convergem para a mesma visao logica da sala.
 
 ---
 
