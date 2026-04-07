@@ -2,10 +2,10 @@
 
 echo "🚀 Iniciando o Integrador Gateway..."
 
-# Limpa o container antigo silenciosamente para evitar conflito de nomes
+# Remove a instancia antiga para evitar conflito de nome ao subir o gateway.
 docker rm -f integrador_pbl 2>/dev/null
 
-# Sobe o Integrador mapeando todas as portas necessárias da arquitetura
+# Sobe o integrador com as portas UDP e TCP usadas pela arquitetura.
 docker run -d --name integrador_pbl \
     -p 8080:8080/udp \
     -p 8081:8081/tcp \

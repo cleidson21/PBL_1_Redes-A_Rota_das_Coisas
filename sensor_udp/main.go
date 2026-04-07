@@ -8,20 +8,19 @@ import (
 )
 
 func main() {
-	// Configurações de Rede
+	// Endereco do integrador alvo. Mantem um padrao local quando a variavel nao vem do ambiente.
 	addrEnv := os.Getenv("SERVER_ADDR")
 	if addrEnv == "" {
 		addrEnv = "localhost:8080"
 	}
 
-	// Identidade do Sensor (Ambiente e Tipo)
-	// Pega o nome do sensor (Ex: SALA_1, SALA_2)
+	// Identificacao do sensor usada no payload UDP.
 	sensorID := os.Getenv("SENSOR_ID")
 	if sensorID == "" {
 		sensorID = "SALA_1"
 	}
 
-	// Pega o tipo de grandeza física (Ex: T para Temperatura, U para Umidade)
+	// Tipo da grandeza emitida: T para temperatura, U para umidade.
 	sensorTipo := os.Getenv("SENSOR_TIPO")
 	if sensorTipo == "" {
 		sensorTipo = "T"
@@ -43,12 +42,12 @@ func main() {
 
 	fmt.Printf("📡 Sensor [%s] tipo [%s] iniciado! Enviando telemetria para %s via UDP.\n", sensorID, sensorTipo, addrEnv)
 
-	// Lógica de Simulação de Dados
+	// Simula uma leitura oscilando dentro de um intervalo fixo para gerar telemetria continua.
 	temperaturaAtual := 25.0
 	variacao := 0.33
 
 	for {
-		// Aplica a variação atual (sobe ou desce)
+		// Inverte o sentido quando atinge os limites para manter a oscilacao.
 		temperaturaAtual += variacao
 
 		if temperaturaAtual >= 40.0 {
@@ -59,17 +58,17 @@ func main() {
 			variacao = 0.33
 		}
 
-		// Formato: TIPO|ID|VALOR -> Exemplo na rede: T|SALA_1|25.50
+		// Formato do pacote consumido pelo integrador: TIPO|ID|VALOR.
 		mensagem := fmt.Sprintf("%s|%s|%.2f", sensorTipo, sensorID, temperaturaAtual)
 		fmt.Printf("Enviando -> %s\n", mensagem)
 
-		// Envia o pacote UDP (Fire and Forget)
+		// UDP nao confirma entrega; o sensor apenas envia e segue o ciclo.
 		_, err := conn.Write([]byte(mensagem))
 		if err != nil {
 			fmt.Printf("⚠️ Erro de rede: %v\n", err)
 		}
 
-		// Envio contínuo (a cada 500ms)
+		// Intervalo fixo entre amostras para manter a taxa de envio.
 		time.Sleep(500 * time.Millisecond)
 	}
 }

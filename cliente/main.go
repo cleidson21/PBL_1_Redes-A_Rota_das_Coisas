@@ -11,13 +11,12 @@ import (
 	"time"
 )
 
-// ESTRUTURA DE DADOS (O "Cérebro" do Sistema)
+// Estado consolidado de cada sala mantido pelo dashboard.
 type EstadoSala struct {
-	// Flags e Timestamps para saber quando os dispositivos "morreram"
 	TemSensorTemp     bool
 	TemperaturaAtual  float64
 	TemperaturaAlvo   float64
-	UltimaLeituraTemp time.Time // Guarda o último sinal de vida do termômetro
+	UltimaLeituraTemp time.Time // Ultima telemetria recebida do sensor
 
 	TemAC    bool
 	ArLigado bool
@@ -28,10 +27,10 @@ type EstadoSala struct {
 
 	TemCatraca           bool
 	UltimoEvento         string
-	UltimaLeituraCatraca time.Time // Guarda o último sinal de vida da catraca
+	UltimaLeituraCatraca time.Time // Ultimo evento recebido da catraca
 }
 
-// O Dicionário (Map) que guarda o estado de cada sala dinamicamente
+// Estados das salas protegidos por mutex.
 var (
 	mu    sync.RWMutex
 	salas = make(map[string]*EstadoSala)
@@ -55,7 +54,7 @@ func getSalaSegura(id string) *EstadoSala {
 func main() {
 	addrEnv := os.Getenv("INTEGRADOR_ADDR")
 	if addrEnv == "" {
-		addrEnv = "localhost:8083" // Porta do Integrador para Clientes
+		addrEnv = "localhost:8083"
 	}
 
 	conn, err := net.Dial("tcp", addrEnv)
@@ -67,10 +66,10 @@ func main() {
 
 	fmt.Println("✅ Ligado com sucesso ao Gateway Integrador!")
 
-	// 1. INICIA O CÉREBRO EM SEGUNDO PLANO
+	// Leitor de rede e motor de regras rodam em segundo plano.
 	go ouvirRedeEProcessarLogica(conn)
 
-	// 2. INICIA O "FAXINEIRO" DE DISPOSITIVOS FANTASMAS (Garbage Collector)
+	// Remove salas sem dispositivos ativos para manter o painel enxuto.
 	go limparDispositivosInativos()
 
 	reader := bufio.NewReader(os.Stdin)
@@ -108,7 +107,7 @@ func main() {
 			sala.ModoAuto = false
 			mu.Unlock()
 
-			// SINCRONIZA O RESTO DA REDE QUE ENTROU EM MODO MANUAL
+			// Sincroniza o modo manual com os outros clientes.
 			fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
 			fmt.Fprintf(conn, "AC_%s|%s\n", idSala, acao)
 			fmt.Println("⏳ Comando enviado! (Sincronizando modo MANUAL com a rede...)")
@@ -125,11 +124,11 @@ func main() {
 			mu.Unlock()
 
 			if statusAuto {
-				// AVISA TODOS OS OUTROS CLIENTES
+				// Notifica os demais clientes sobre a ativacao do modo automatico.
 				fmt.Fprintf(conn, "SYNC|%s|AUTO\n", idSala)
 				fmt.Println("✅ Modo Automático ATIVADO para a sala", idSala)
 			} else {
-				// AVISA TODOS OS OUTROS CLIENTES
+				// Notifica os demais clientes sobre a desativacao do modo automatico.
 				fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
 				fmt.Println("🛑 Modo Automático DESATIVADO para a sala", idSala)
 			}
@@ -176,7 +175,7 @@ func main() {
 	}
 }
 
-// MOTOR DE REGRAS EM SEGUNDO PLANO (Goroutine)
+// Processa mensagens vindas do integrador e atualiza o estado local.
 func ouvirRedeEProcessarLogica(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 
@@ -192,7 +191,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 
 		mu.Lock()
 
-		// 1. RECEBEU TELEMETRIA (Sensor UDP)
+		// Telemetria UDP de temperatura.
 		if tipoMsg == "TLM" && partes[1] == "T" {
 			idSala := partes[2]
 			tempAtual, _ := strconv.ParseFloat(partes[3], 64)
@@ -200,12 +199,12 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala := getSalaSegura(idSala)
 			sala.TemSensorTemp = true
 			sala.TemperaturaAtual = tempAtual
-			sala.UltimaLeituraTemp = time.Now() // Atualiza o sinal de vida!
+			sala.UltimaLeituraTemp = time.Now()
 
 			avaliarModoAutomatico(idSala, sala, conn)
 		}
 
-		// 2. RECEBEU EVENTO (Sensor TCP / Catraca)
+		// Evento de acesso vindo da catraca.
 		if tipoMsg == "EVT" {
 			idSala := partes[2]
 			evento := partes[3]
@@ -213,10 +212,10 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala := getSalaSegura(idSala)
 			sala.TemCatraca = true
 			sala.UltimoEvento = evento
-			sala.UltimaLeituraCatraca = time.Now() // Atualiza o sinal de vida!
+			sala.UltimaLeituraCatraca = time.Now()
 		}
 
-		// 3. RECEBEU CONFIRMAÇÃO DO ATUADOR (ACK)
+		// Confirmacao de atuador recebida do integrador.
 		if tipoMsg == "ACK" && len(partes) >= 4 {
 			tipoAtuador := partes[1]
 			idSala := partes[2]
@@ -233,39 +232,39 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			}
 		}
 
-		// 4. RECEBEU SINCRONIZAÇÃO DE OUTRO CLIENTE (Evita o Split-Brain)
+		// Sincronizacao vinda de outro cliente para manter o estado consistente.
 		if tipoMsg == "SYNC" && len(partes) >= 3 {
 			idSala := partes[1]
-			modo := partes[2] // "AUTO" ou "MANUAL"
+			modo := partes[2]
 
 			sala := getSalaSegura(idSala)
 			sala.ModoAuto = (modo == "AUTO")
 		}
 
-		// 5. RECEBEU ERRO DE EQUIPAMENTO (Disjuntor e Limpeza de Fantasmas)
+		// Erro de equipamento recebido do gateway.
 		if tipoMsg == "ERRO" && len(partes) >= 3 {
-			origem := partes[1]  // De onde veio o erro (GATEWAY, AC ou LED)
-			detalhe := partes[2] // O texto do erro
+			origem := partes[1]
+			detalhe := partes[2]
 
 			fmt.Printf("\n❌ [FALHA DE COMANDO - %s] %s\n", origem, detalhe)
 
 			if strings.HasPrefix(detalhe, "Atuador ") {
 				pedacos := strings.Split(detalhe, " ")
 				if len(pedacos) >= 2 {
-					idAtuador := pedacos[1] // Ex: AC_SALA_1
+					idAtuador := pedacos[1]
 					idSala := strings.TrimPrefix(idAtuador, "AC_")
 					idSala = strings.TrimPrefix(idSala, "LED_")
 
 					sala := getSalaSegura(idSala)
 
-					// MARCA O ATUADOR COMO OFFLINE/INEXISTENTE
+					// Marca o atuador como indisponivel no estado local.
 					if strings.HasPrefix(idAtuador, "AC_") {
 						sala.TemAC = false
 					} else if strings.HasPrefix(idAtuador, "LED_") {
 						sala.TemLampada = false
 					}
 
-					// SE O ERRO CAUSOU DESARME, AVISA A REDE INTEIRA!
+					// Se o modo automatico estava ativo, desativa por seguranca.
 					if sala.ModoAuto {
 						sala.ModoAuto = false
 						fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
@@ -281,19 +280,19 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 	}
 }
 
-// O FAXINEIRO (Garbage Collector de Dispositivos Offline)
+// Periodicamente remove salas sem dispositivos ativos.
 func limparDispositivosInativos() {
 	for {
-		time.Sleep(3 * time.Second) // Varre a memória a cada 3 segundos
+		time.Sleep(3 * time.Second)
 
 		mu.Lock()
 		for id, sala := range salas {
-			// Se o sensor de temperatura não manda nada há mais de 5 segundos, considera offline
+			// Sensor de temperatura sem sinal recente deixa de ser exibido como ativo.
 			if sala.TemSensorTemp && time.Since(sala.UltimaLeituraTemp) > 5*time.Second {
 				sala.TemSensorTemp = false
 			}
 
-			// A catraca é mais lenta, damos 30 segundos de tolerância antes de a esconder
+			// A catraca possui janela maior de tolerancia por ser mais lenta.
 			if sala.TemCatraca && time.Since(sala.UltimaLeituraCatraca) > 30*time.Second {
 				sala.TemCatraca = false
 			}
@@ -306,6 +305,7 @@ func limparDispositivosInativos() {
 	}
 }
 
+// Aplica a regra de controle automatico do ar condicionado.
 func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	if !sala.ModoAuto {
 		return
@@ -323,7 +323,7 @@ func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	}
 }
 
-// FUNÇÃO VISUAL: Imprime o estado de forma dinâmica (Só mostra o que existe!)
+// Imprime o estado atual das salas e apenas os dispositivos detectados.
 func imprimirPainel() {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -368,8 +368,7 @@ func imprimirPainel() {
 			blocos = append(blocos, fmt.Sprintf("🪪 Acesso: %s", sala.UltimoEvento))
 		}
 
-		// Graças ao Faxineiro (limparDispositivosInativos), se isto aparecer é porque
-		// a sala está a ser construída ou aguarda um ACK. E se não vier nada, ela some!
+		// Se ainda nao houver blocos, a sala ainda aguarda deteccao ou confirmacao.
 		if len(blocos) == 0 {
 			blocos = append(blocos, "⏳ A aguardar identificação dos dispositivos...")
 		}

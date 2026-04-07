@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	// Identidade do Atuador
+	// Identidade logica do atuador enviada ao integrador.
 	atuadorID := os.Getenv("ATUADOR_ID")
 	if atuadorID == "" {
 		atuadorID = "SALA_1"
@@ -20,7 +20,7 @@ func main() {
 		tipoAtuador = "AC"
 	}
 
-	// Configurações de Rede do Integrador
+	// Endereco do integrador usado para registro e recebimento de comandos.
 	integradorAddr := os.Getenv("INTEGRADOR_ADDR")
 	if integradorAddr == "" {
 		integradorAddr = "localhost:8082"
@@ -35,7 +35,7 @@ func main() {
 
 	fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
 
-	// Fica: REG|AC|SALA_1
+	// Registra o atuador no gateway com o formato REG|TIPO|ID.
 	fmt.Fprintf(conn, "REG|%s|%s\n", tipoAtuador, atuadorID)
 
 	scanner := bufio.NewScanner(conn)
@@ -47,7 +47,7 @@ func main() {
 		switch acao {
 		case "LIGAR":
 			fmt.Printf("❄️ [%s] LIGANDO compressor do Ar...\n", atuadorID)
-			// Exemplo de saída: ACK|AC|SALA_1|LIGADO
+			// Resposta padrao repassada ao cliente pelo integrador.
 			fmt.Fprintf(conn, "ACK|%s|%s|LIGADO\n", tipoAtuador, atuadorID)
 		case "DESLIGAR":
 			fmt.Printf("🛑 [%s] DESLIGANDO Ar-Condicionado...\n", atuadorID)
@@ -55,9 +55,11 @@ func main() {
 		case "SET_TEMP":
 			if len(partes) > 1 {
 				fmt.Printf("🌡️ [%s] Ajustando termostato para %s°C\n", atuadorID, partes[1])
+				// Confirma o novo setpoint para o painel.
 				fmt.Fprintf(conn, "ACK|%s|%s|TEMP_SETADA_%s\n", tipoAtuador, atuadorID, partes[1])
 			}
 		default:
+			// Comandos fora do contrato sao apenas reportados no log.
 			fmt.Printf("⚠️ Comando desconhecido para AC: %s\n", comando)
 		}
 	}

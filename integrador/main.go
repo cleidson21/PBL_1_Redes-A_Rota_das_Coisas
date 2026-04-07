@@ -9,11 +9,11 @@ import (
 )
 
 var (
-	// Mapa para guardar as conexões ativas dos Atuadores (Chave: ID do Atuador)
+	// Conexoes TCP ativas dos atuadores, indexadas por ID logico.
 	muAtuadores sync.RWMutex
 	atuadores   = make(map[string]net.Conn)
 
-	// Mapa para guardar as conexões ativas dos Clientes/Dashboards
+	// Conexoes TCP ativas dos clientes e dashboards.
 	muClientes sync.RWMutex
 	clientes   = make(map[net.Conn]bool)
 )
@@ -26,17 +26,17 @@ func main() {
 	fmt.Println("- TCP 8082: Atuadores (Ar Condicionado/Lâmpadas)")
 	fmt.Println("- TCP 8083: Clientes (Dashboards e Controladores)")
 
-	// Inicia as 4 portas em paralelo usando as Goroutines do Go
+	// Cada porta roda em uma goroutine para manter os listeners independentes.
 	go listenSensoresUDP()
 	go listenSensoresTCP()
 	go listenAtuadoresTCP()
 	go listenClientesTCP()
 
-	// Trava o programa principal infinitamente
+	// Mantem o processo principal vivo enquanto os listeners executam.
 	select {}
 }
 
-// PORTA 8080 (UDP) - Recebe Sensores de Temperatura Contínuos
+// Porta 8080: recebe telemetria UDP de sensores contínuos.
 func listenSensoresUDP() {
 	addr, _ := net.ResolveUDPAddr("udp", ":8080")
 	conn, err := net.ListenUDP("udp", addr)
@@ -56,12 +56,12 @@ func listenSensoresUDP() {
 		mensagem := strings.TrimSpace(string(buffer[:n]))
 		fmt.Printf("📥 [Sensor UDP] Recebeu: %s\n", mensagem)
 
-		// Repassa a mensagem para todos os clientes conectados
+		// Telemetria UDP segue para todos os clientes conectados.
 		broadcastParaClientes("TLM|" + mensagem)
 	}
 }
 
-// PORTA 8081 (TCP) - Recebe Sensores de Evento (NFC)
+// Porta 8081: recebe eventos TCP de sensores com conexao persistente.
 func listenSensoresTCP() {
 	listener, err := net.Listen("tcp", ":8081")
 	if err != nil {
@@ -75,7 +75,7 @@ func listenSensoresTCP() {
 		if err != nil {
 			continue
 		}
-		// Cada sensor TCP ganha uma rotina para manter o túnel aberto
+		// Cada sensor TCP fica isolado em uma goroutine para ler sua conexao.
 		go func(c net.Conn) {
 			defer c.Close()
 			scanner := bufio.NewScanner(c)
@@ -83,14 +83,14 @@ func listenSensoresTCP() {
 				mensagem := strings.TrimSpace(scanner.Text())
 				fmt.Printf("📥 [Sensor TCP] Recebeu: %s\n", mensagem)
 
-				// OTIMIZAÇÃO: Usa o prefixo "EVT" (Evento)
+				// Eventos entram no fluxo de clientes com o prefixo EVT.
 				broadcastParaClientes("EVT|" + mensagem)
 			}
 		}(conn)
 	}
 }
 
-// PORTA 8082 (TCP) - Recebe e Gerencia Atuadores
+// Porta 8082: registra atuadores e encaminha respostas deles para os clientes.
 func listenAtuadoresTCP() {
 	listener, err := net.Listen("tcp", ":8082")
 	if err != nil {
@@ -150,7 +150,7 @@ func manipularAtuador(conn net.Conn) {
 	conn.Close()
 }
 
-// PORTA 8083 (TCP) - Recebe e Gerencia Clientes (Dashboards)
+// Porta 8083: recebe clientes e dashboards de controle.
 func listenClientesTCP() {
 	listener, err := net.Listen("tcp", ":8083")
 	if err != nil {
@@ -165,7 +165,7 @@ func listenClientesTCP() {
 			continue
 		}
 
-		// Registra o novo cliente
+		// Mantem a conexao do cliente registrada para broadcast.
 		muClientes.Lock()
 		clientes[conn] = true
 		muClientes.Unlock()
@@ -178,7 +178,7 @@ func listenClientesTCP() {
 func manipularCliente(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 
-	// O Cliente enviará comandos no formato: ID_ATUADOR|COMANDO ou SYNC|COMANDO
+	// Comandos chegam no formato ID_ATUADOR|COMANDO ou SYNC|COMANDO.
 	for scanner.Scan() {
 		mensagem := strings.TrimSpace(scanner.Text())
 		partes := strings.SplitN(mensagem, "|", 2) // Corta apenas no primeiro "|"
@@ -187,16 +187,14 @@ func manipularCliente(conn net.Conn) {
 			idDestino := partes[0]
 			comando := partes[1]
 
-			// ========================================================
-			// NOVO: Canal de Sincronização entre Clientes (State Sync)
-			// ========================================================
+			// Canal de sincronizacao entre clientes para replicar estado.
 			if idDestino == "SYNC" {
 				fmt.Printf("🔄 [State Sync] Espalhando sincronização: %s\n", comando)
 				broadcastParaClientes(fmt.Sprintf("SYNC|%s", comando))
-				continue // Pula o resto da lógica e NÃO tenta procurar um atuador chamado "SYNC"
+				continue
 			}
 
-			// Busca o túnel TCP daquele atuador específico na Lista Telefônica
+			// Busca a conexao do atuador pelo ID logico.
 			muAtuadores.RLock()
 			atuadorConn, existe := atuadores[idDestino]
 			muAtuadores.RUnlock()
@@ -211,7 +209,7 @@ func manipularCliente(conn net.Conn) {
 		}
 	}
 
-	// Se desconectar, remove o cliente da lista
+	// Remove o cliente da lista ao encerrar a conexao.
 	muClientes.Lock()
 	delete(clientes, conn)
 	muClientes.Unlock()
@@ -219,7 +217,7 @@ func manipularCliente(conn net.Conn) {
 	conn.Close()
 }
 
-// FUNÇÃO AUXILIAR: Envia mensagem para todos os painéis abertos
+// Broadcast para todos os clientes conectados.
 func broadcastParaClientes(mensagem string) {
 	muClientes.RLock()
 	defer muClientes.RUnlock()

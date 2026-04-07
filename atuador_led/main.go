@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	// Identidade do Atuador
+	// Identidade logica do atuador enviada ao integrador.
 	atuadorID := os.Getenv("ATUADOR_ID")
 	if atuadorID == "" {
 		atuadorID = "SALA_1"
@@ -20,7 +20,7 @@ func main() {
 		tipoAtuador = "LED"
 	}
 
-	// Configurações de Rede do Integrador
+	// Endereco do integrador usado para registro e recebimento de comandos.
 	integradorAddr := os.Getenv("INTEGRADOR_ADDR")
 	if integradorAddr == "" {
 		integradorAddr = "localhost:8082"
@@ -35,7 +35,7 @@ func main() {
 
 	fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
 
-	// Fica: REG|LED|SALA_1
+	// Registra o atuador no gateway com o formato REG|TIPO|ID.
 	fmt.Fprintf(conn, "REG|%s|%s\n", tipoAtuador, atuadorID)
 
 	scanner := bufio.NewScanner(conn)
@@ -47,12 +47,13 @@ func main() {
 		switch acao {
 		case "LIGAR":
 			fmt.Printf("💡 [%s] Lâmpada ACESA...\n", atuadorID)
-			// Exemplo de saída: ACK|LED|SALA_1|LIGADO
+			// Resposta padrao enviada ao integrador para ser repassada ao cliente.
 			fmt.Fprintf(conn, "ACK|%s|%s|LIGADO\n", tipoAtuador, atuadorID)
 		case "DESLIGAR":
 			fmt.Printf("🌑 [%s] Lâmpada APAGADA...\n", atuadorID)
 			fmt.Fprintf(conn, "ACK|%s|%s|DESLIGADO\n", tipoAtuador, atuadorID)
 		default:
+			// Comandos fora do contrato sao apenas reportados no log.
 			fmt.Printf("⚠️ Comando desconhecido para Lâmpada: %s\n", comando)
 		}
 	}
