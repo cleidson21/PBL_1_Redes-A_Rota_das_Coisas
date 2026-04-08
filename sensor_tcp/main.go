@@ -14,7 +14,7 @@ func habilitarKeepAlive(conn net.Conn) {
 		return
 	}
 	_ = tcpConn.SetKeepAlive(true)
-	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
+	_ = tcpConn.SetKeepAlivePeriod(3 * time.Second)
 }
 
 func main() {

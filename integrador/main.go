@@ -23,7 +23,7 @@ func habilitarKeepAlive(conn net.Conn) {
 		return
 	}
 	_ = tcpConn.SetKeepAlive(true)
-	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
+	_ = tcpConn.SetKeepAlivePeriod(3 * time.Second)
 }
 
 func main() {
@@ -242,12 +242,12 @@ func broadcastParaClientes(mensagem string) {
 
 	for conn := range clientes {
 		go func(clienteConn net.Conn, msg string, telemetria bool) {
+			defer clienteConn.SetWriteDeadline(time.Time{})
 			clienteConn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 			_, err := fmt.Fprintf(clienteConn, "%s\n", msg)
 			if err != nil && telemetria {
 				return
 			}
-			clienteConn.SetWriteDeadline(time.Time{})
 		}(conn, mensagem, isTelemetria)
 	}
 }
