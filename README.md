@@ -108,21 +108,36 @@ Mensagens relevantes na implementacao atual:
 
 ## Resiliencia e Tolerancia a Falhas
 
-As versoes mais recentes do `cliente` adicionam tres mecanismos de robustez para operacao distribuida:
+As versoes mais recentes dos servicos adicionam mecanismos de robustez para operacao distribuida:
 
-1. **Circuit Breaker (desarme automatico)**
-- Se um atuador falha repetidamente (timeout/erro), o cliente interrompe comandos agressivos para aquela sala por um periodo curto.
-- O objetivo e evitar tempestade de retries, reduzir ruido de rede e impedir oscilacao de estado.
+1. **Reconexao automatica (cliente, sensores e atuadores)**
+- Servicos TCP mantem laço de reconexao com retry/backoff quando o Integrador fica offline.
+- O cliente mantem menu interativo ativo e reconecta em background, sem travar a CLI.
 
-2. **Garbage Collector de Salas (TTL 5-30s)**
-- Cada sala tem carimbo de ultimo heartbeat/telemetria.
-- Se a sala ficar sem atualizacao por tempo configurado (entre **5 e 30 segundos**, conforme ambiente), ela e removida do mapa em memoria.
-- Isso elimina salas fantasmas e trata desconexao de sensores sem intervencao manual.
+2. **Heartbeat de estado nos atuadores (anti late joiner)**
+- `atuador_ac` e `atuador_led` enviam `ACK` periodico para que novos clientes recebam estado mesmo entrando depois.
+- Heartbeat usa encerramento explicito por canal para evitar vazamento de goroutines apos reconexao.
 
-3. **State Sync entre Clientes (anti split-brain)**
+3. **KeepAlive TCP (detecao de conexao zumbi)**
+- Conexoes TCP habilitam keepalive para reduzir permanencia de half-open connections.
+
+4. **QoS no broadcast do Integrador**
+- Broadcast para clientes e assincrono, com `write deadline` de 1 segundo para evitar slow consumer bloquear o broker.
+- Telemetria com falha de envio e descartada (drop policy) para preservar throughput.
+
+5. **Validacao de payload**
+- Integrador valida mensagens malformadas de sensores antes de repassar.
+
+
+6. **State Sync entre Clientes (anti split-brain)**
 - Em cenarios com multiplos paineis, cada cliente publica mudancas de modo/estado com `SYNC|<SALA>|<ESTADO>`.
 - Exemplo real: `SYNC|SALA_1|AUTO`.
 - Com esse gossip de estado, todos os paineis convergem para a mesma visao logica da sala.
+
+7. **Garbage Collector de Salas (TTL 5-30s)**
+- Cada sala tem carimbo de ultimo heartbeat/telemetria.
+- Se a sala ficar sem atualizacao por tempo configurado (entre **5 e 30 segundos**, conforme ambiente), ela e removida do mapa em memoria.
+- Isso elimina salas fantasmas e trata desconexao de sensores sem intervencao manual.
 
 ---
 
@@ -219,7 +234,7 @@ Exemplo em 3 maquinas:
 ```bash
 docker run -d --name integrador_pbl \
     -p 8080:8080/udp -p 8081:8081/tcp -p 8082:8082/tcp -p 8083:8083/tcp \
-    cleidsonramos/integrador:v1
+    cleidsonramos/integrador:v2
 ```
 
 2. **PC 2 - Dispositivos**
@@ -230,28 +245,28 @@ docker run -d --name sensor_udp_pbl \
     -e SERVER_ADDR="<IP_GATEWAY>:8080" \
     -e SENSOR_ID="SALA_1" \
     -e SENSOR_TIPO="T" \
-    cleidsonramos/sensor_udp:v1
+    cleidsonramos/sensor_udp:v2
 
 # Sensor TCP
 docker run -d --name sensor_tcp_pbl \
     -e SERVER_ADDR="<IP_GATEWAY>:8081" \
     -e SENSOR_ID="CATRACA_ENTRADA" \
     -e SENSOR_TIPO="NFC" \
-    cleidsonramos/sensor_tcp:v1
+    cleidsonramos/sensor_tcp:v2
 
 # Atuador AC
 docker run -d --name atuador_ac_pbl \
     -e INTEGRADOR_ADDR="<IP_GATEWAY>:8082" \
     -e ATUADOR_ID="SALA_1" \
     -e ATUADOR_TIPO="AC" \
-    cleidsonramos/atuador_ac:v1
+    cleidsonramos/atuador_ac:v2
 
 # Atuador LED
 docker run -d --name atuador_led_pbl \
     -e INTEGRADOR_ADDR="<IP_GATEWAY>:8082" \
     -e ATUADOR_ID="SALA_1" \
     -e ATUADOR_TIPO="LED" \
-    cleidsonramos/atuador_led:v1
+    cleidsonramos/atuador_led:v2
 ```
 
 3. **PC 3 - Cliente**
@@ -259,7 +274,7 @@ docker run -d --name atuador_led_pbl \
 ```bash
 docker run -it --name cliente_pbl \
     -e INTEGRADOR_ADDR="<IP_GATEWAY>:8083" \
-    cleidsonramos/cliente:v1
+    cleidsonramos/cliente:v2
 ```
 
 ---
@@ -362,21 +377,21 @@ docker stop $(docker ps -aq) 2>/dev/null; docker system prune -a --volumes -f
 Rebuild de imagens por servico:
 
 ```bash
-docker build -t cleidsonramos/integrador:v2 ./integrador
-docker build -t cleidsonramos/cliente:v2 ./cliente
-docker build -t cleidsonramos/sensor_udp:v2 ./sensor_udp
-docker build -t cleidsonramos/sensor_tcp:v2 ./sensor_tcp
-docker build -t cleidsonramos/atuador_ac:v2 ./atuador_ac
-docker build -t cleidsonramos/atuador_led:v2 ./atuador_led
+docker build -t cleidsonramos/integrador:v3 ./integrador
+docker build -t cleidsonramos/cliente:v3 ./cliente
+docker build -t cleidsonramos/sensor_udp:v3 ./sensor_udp
+docker build -t cleidsonramos/sensor_tcp:v3 ./sensor_tcp
+docker build -t cleidsonramos/atuador_ac:v3 ./atuador_ac
+docker build -t cleidsonramos/atuador_led:v3 ./atuador_led
 ```
 
 Publicacao (opcional):
 
 ```bash
-docker push cleidsonramos/integrador:v2
-docker push cleidsonramos/cliente:v2
-docker push cleidsonramos/sensor_udp:v2
-docker push cleidsonramos/sensor_tcp:v2
-docker push cleidsonramos/atuador_ac:v2
-docker push cleidsonramos/atuador_led:v2
+docker push cleidsonramos/integrador:v3
+docker push cleidsonramos/cliente:v3
+docker push cleidsonramos/sensor_udp:v3
+docker push cleidsonramos/sensor_tcp:v3
+docker push cleidsonramos/atuador_ac:v3
+docker push cleidsonramos/atuador_led:v3
 ```

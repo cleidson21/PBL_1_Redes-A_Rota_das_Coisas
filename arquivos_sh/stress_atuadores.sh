@@ -13,14 +13,14 @@ for i in $(seq 1 $QTD_SALAS); do
         -e INTEGRADOR_ADDR="$IP_GATEWAY:8082" \
         -e ATUADOR_ID="SALA_$i" \
         -e ATUADOR_TIPO="AC" \
-        cleidsonramos/atuador_ac:v1 > /dev/null
+        cleidsonramos/atuador_ac:v2 > /dev/null
 
     # Atuador de lampada para cada sala.
     docker run -d --name "stress_atuador_led_$i" \
         -e INTEGRADOR_ADDR="$IP_GATEWAY:8082" \
         -e ATUADOR_ID="SALA_$i" \
         -e ATUADOR_TIPO="LED" \
-        cleidsonramos/atuador_led:v1 > /dev/null
+        cleidsonramos/atuador_led:v2 > /dev/null
 done
 
 echo "✅ $QTD_SALAS Atuadores AC e $QTD_SALAS Lâmpadas conectados e registrados!"

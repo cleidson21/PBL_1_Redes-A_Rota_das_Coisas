@@ -13,14 +13,14 @@ for i in $(seq 1 $QTD_SALAS); do
         -e SERVER_ADDR="$IP_GATEWAY:8080" \
         -e SENSOR_ID="SALA_$i" \
         -e SENSOR_TIPO="T" \
-        cleidsonramos/sensor_udp:v1 > /dev/null
+        cleidsonramos/sensor_udp:v2 > /dev/null
 
     # Sensor TCP de eventos de acesso.
     docker run -d --name "stress_sensor_tcp_$i" \
         -e SERVER_ADDR="$IP_GATEWAY:8081" \
         -e SENSOR_ID="ENTRADA_$i" \
         -e SENSOR_TIPO="NFC" \
-        cleidsonramos/sensor_tcp:v1 > /dev/null
+        cleidsonramos/sensor_tcp:v2 > /dev/null
 done
 
 echo "✅ $QTD_SALAS Sensores UDP e $QTD_SALAS Sensores TCP criados!"

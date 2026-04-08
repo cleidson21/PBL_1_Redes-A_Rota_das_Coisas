@@ -11,7 +11,7 @@ for i in $(seq 1 $QTD_SALAS); do
     # Usa pseudo-terminal para manter a interface interativa funcionando.
     docker run -td --name "stress_cliente_$i" \
         -e INTEGRADOR_ADDR="$IP_GATEWAY:8083" \
-        cleidsonramos/cliente:v1 > /dev/null
+        cleidsonramos/cliente:v2 > /dev/null
 done
 
 echo "✅ $QTD_SALAS Clientes ouvindo a rede e processando histerese!"

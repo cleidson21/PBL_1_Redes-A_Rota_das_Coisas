@@ -11,7 +11,7 @@ docker run -d --name integrador_pbl \
     -p 8081:8081/tcp \
     -p 8082:8082/tcp \
     -p 8083:8083/tcp \
-    cleidsonramos/integrador:v1
+    cleidsonramos/integrador:v2
 
 echo "✅ Integrador iniciado com sucesso em background!"
 echo "💡 Dica: Para acompanhar os logs em tempo real, digite: docker logs -f integrador_pbl"
