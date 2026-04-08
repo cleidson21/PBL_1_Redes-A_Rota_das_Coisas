@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -170,13 +171,21 @@ func main() {
 			mu.Unlock()
 
 			// Sincroniza o modo manual com os outros clientes.
-			okSync := enviarLinha(fmt.Sprintf("SYNC|%s|MANUAL", idSala))
-			okCmd := enviarLinha(fmt.Sprintf("AC_%s|%s", idSala, acao))
-			if okSync && okCmd {
-				fmt.Println("⏳ Comando enviado! (Sincronizando modo MANUAL com a rede...)")
-			} else {
-				fmt.Println("⚠️ Sem conexão com o Integrador. O comando não foi enviado.")
+			conn := getConexao()
+			if conn == nil {
+				log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+				break
 			}
+
+			_, errSync := fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
+			_, errCmd := fmt.Fprintf(conn, "AC_%s|%s\n", idSala, acao)
+
+			if errSync != nil || errCmd != nil {
+				log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+				descartarConexao(conn)
+				break
+			}
+			fmt.Println("⏳ Comando enviado! (Sincronizando modo MANUAL com a rede...)")
 
 		case "3":
 			fmt.Print("Digite o NOME DA SALA (ex: SALA_1): ")
@@ -189,20 +198,30 @@ func main() {
 			statusAuto := sala.ModoAuto
 			mu.Unlock()
 
+			conn := getConexao()
+			if conn == nil {
+				log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+				break
+			}
+
+			var cmd string
 			if statusAuto {
-				// Notifica os demais clientes sobre a ativacao do modo automatico.
-				if enviarLinha(fmt.Sprintf("SYNC|%s|AUTO", idSala)) {
-					fmt.Println("✅ Modo Automático ATIVADO para a sala", idSala)
-				} else {
-					fmt.Println("⚠️ Sem conexão com o Integrador. Estado será sincronizado após reconexão.")
-				}
+				cmd = fmt.Sprintf("SYNC|%s|AUTO", idSala)
 			} else {
-				// Notifica os demais clientes sobre a desativacao do modo automatico.
-				if enviarLinha(fmt.Sprintf("SYNC|%s|MANUAL", idSala)) {
-					fmt.Println("🛑 Modo Automático DESATIVADO para a sala", idSala)
-				} else {
-					fmt.Println("⚠️ Sem conexão com o Integrador. Estado será sincronizado após reconexão.")
-				}
+				cmd = fmt.Sprintf("SYNC|%s|MANUAL", idSala)
+			}
+
+			_, err := fmt.Fprintf(conn, "%s\n", cmd)
+			if err != nil {
+				log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+				descartarConexao(conn)
+				break
+			}
+
+			if statusAuto {
+				fmt.Println("✅ Modo Automático ATIVADO para a sala", idSala)
+			} else {
+				fmt.Println("🛑 Modo Automático DESATIVADO para a sala", idSala)
 			}
 
 		case "4":
@@ -220,11 +239,19 @@ func main() {
 				sala.TemperaturaAlvo = tempVal
 				mu.Unlock()
 
-				if enviarLinha(fmt.Sprintf("AC_%s|SET_TEMP %.1f", idSala, tempVal)) {
-					fmt.Printf("🎯 Alvo da %s alterado para %.1f°C\n", idSala, tempVal)
-				} else {
-					fmt.Println("⚠️ Sem conexão com o Integrador. O comando não foi enviado.")
+				conn := getConexao()
+				if conn == nil {
+					log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+					break
 				}
+
+				_, errSend := fmt.Fprintf(conn, "AC_%s|SET_TEMP %.1f\n", idSala, tempVal)
+				if errSend != nil {
+					log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+					descartarConexao(conn)
+					break
+				}
+				fmt.Printf("🎯 Alvo da %s alterado para %.1f°C\n", idSala, tempVal)
 			} else {
 				fmt.Println("❌ Valor de temperatura inválido.")
 			}
@@ -238,11 +265,19 @@ func main() {
 			acao, _ := reader.ReadString('\n')
 			acao = strings.TrimSpace(strings.ToUpper(acao))
 
-			if enviarLinha(fmt.Sprintf("LED_%s|%s", idSala, acao)) {
-				fmt.Println("💡 Comando enviado para a Lâmpada!")
-			} else {
-				fmt.Println("⚠️ Sem conexão com o Integrador. O comando não foi enviado.")
+			conn := getConexao()
+			if conn == nil {
+				log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+				break
 			}
+
+			_, err := fmt.Fprintf(conn, "LED_%s|%s\n", idSala, acao)
+			if err != nil {
+				log.Println("⚠️ FALHA NA REDE: O Gateway caiu! Reiniciando cliente...")
+				descartarConexao(conn)
+				break
+			}
+			fmt.Println("💡 Comando enviado para a Lâmpada!")
 
 		case "0":
 			fmt.Println("A desligar do sistema...")
