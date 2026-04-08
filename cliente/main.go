@@ -34,6 +34,9 @@ type EstadoSala struct {
 var (
 	mu    sync.RWMutex
 	salas = make(map[string]*EstadoSala)
+
+	connMu         sync.RWMutex
+	integradorConn net.Conn
 )
 
 func getSalaSegura(id string) *EstadoSala {
@@ -50,6 +53,64 @@ func getSalaSegura(id string) *EstadoSala {
 	return salas[id]
 }
 
+func setConexao(conn net.Conn) {
+	connMu.Lock()
+	integradorConn = conn
+	connMu.Unlock()
+}
+
+func getConexao() net.Conn {
+	connMu.RLock()
+	defer connMu.RUnlock()
+	return integradorConn
+}
+
+func descartarConexao(conn net.Conn) {
+	connMu.Lock()
+	if integradorConn == conn {
+		integradorConn = nil
+	}
+	connMu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
+}
+
+func enviarLinha(linha string) bool {
+	conn := getConexao()
+	if conn == nil {
+		return false
+	}
+
+	_, err := fmt.Fprintf(conn, "%s\n", linha)
+	if err != nil {
+		descartarConexao(conn)
+		return false
+	}
+
+	return true
+}
+
+func manterConexaoComIntegrador(addr string) {
+	for {
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			fmt.Printf("⚠️ Integrador offline. Tentando reconectar em 5 segundos... (%v)\n", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		setConexao(conn)
+		fmt.Println("✅ Ligado com sucesso ao Gateway Integrador!")
+
+		ouvirRedeEProcessarLogica(conn)
+
+		descartarConexao(conn)
+		fmt.Println("❌ Conexão perdida. Iniciando reconexão...")
+		time.Sleep(3 * time.Second)
+	}
+}
+
 // FUNÇÃO PRINCIPAL E INTERFACE COM O UTILIZADOR (CLI)
 func main() {
 	addrEnv := os.Getenv("INTEGRADOR_ADDR")
@@ -57,17 +118,8 @@ func main() {
 		addrEnv = "localhost:8083"
 	}
 
-	conn, err := net.Dial("tcp", addrEnv)
-	if err != nil {
-		fmt.Printf("❌ Erro ao ligar ao Integrador em %s: %v\n", addrEnv, err)
-		return
-	}
-	defer conn.Close()
-
-	fmt.Println("✅ Ligado com sucesso ao Gateway Integrador!")
-
-	// Leitor de rede e motor de regras rodam em segundo plano.
-	go ouvirRedeEProcessarLogica(conn)
+	// Laço persistente de conexão com reconexão automatica em caso de queda.
+	go manterConexaoComIntegrador(addrEnv)
 
 	// Remove salas sem dispositivos ativos para manter o painel enxuto.
 	go limparDispositivosInativos()
@@ -108,9 +160,13 @@ func main() {
 			mu.Unlock()
 
 			// Sincroniza o modo manual com os outros clientes.
-			fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
-			fmt.Fprintf(conn, "AC_%s|%s\n", idSala, acao)
-			fmt.Println("⏳ Comando enviado! (Sincronizando modo MANUAL com a rede...)")
+			okSync := enviarLinha(fmt.Sprintf("SYNC|%s|MANUAL", idSala))
+			okCmd := enviarLinha(fmt.Sprintf("AC_%s|%s", idSala, acao))
+			if okSync && okCmd {
+				fmt.Println("⏳ Comando enviado! (Sincronizando modo MANUAL com a rede...)")
+			} else {
+				fmt.Println("⚠️ Sem conexão com o Integrador. O comando não foi enviado.")
+			}
 
 		case "3":
 			fmt.Print("Digite o NOME DA SALA (ex: SALA_1): ")
@@ -125,12 +181,18 @@ func main() {
 
 			if statusAuto {
 				// Notifica os demais clientes sobre a ativacao do modo automatico.
-				fmt.Fprintf(conn, "SYNC|%s|AUTO\n", idSala)
-				fmt.Println("✅ Modo Automático ATIVADO para a sala", idSala)
+				if enviarLinha(fmt.Sprintf("SYNC|%s|AUTO", idSala)) {
+					fmt.Println("✅ Modo Automático ATIVADO para a sala", idSala)
+				} else {
+					fmt.Println("⚠️ Sem conexão com o Integrador. Estado será sincronizado após reconexão.")
+				}
 			} else {
 				// Notifica os demais clientes sobre a desativacao do modo automatico.
-				fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
-				fmt.Println("🛑 Modo Automático DESATIVADO para a sala", idSala)
+				if enviarLinha(fmt.Sprintf("SYNC|%s|MANUAL", idSala)) {
+					fmt.Println("🛑 Modo Automático DESATIVADO para a sala", idSala)
+				} else {
+					fmt.Println("⚠️ Sem conexão com o Integrador. Estado será sincronizado após reconexão.")
+				}
 			}
 
 		case "4":
@@ -148,8 +210,11 @@ func main() {
 				sala.TemperaturaAlvo = tempVal
 				mu.Unlock()
 
-				fmt.Fprintf(conn, "AC_%s|SET_TEMP %.1f\n", idSala, tempVal)
-				fmt.Printf("🎯 Alvo da %s alterado para %.1f°C\n", idSala, tempVal)
+				if enviarLinha(fmt.Sprintf("AC_%s|SET_TEMP %.1f", idSala, tempVal)) {
+					fmt.Printf("🎯 Alvo da %s alterado para %.1f°C\n", idSala, tempVal)
+				} else {
+					fmt.Println("⚠️ Sem conexão com o Integrador. O comando não foi enviado.")
+				}
 			} else {
 				fmt.Println("❌ Valor de temperatura inválido.")
 			}
@@ -163,8 +228,11 @@ func main() {
 			acao, _ := reader.ReadString('\n')
 			acao = strings.TrimSpace(strings.ToUpper(acao))
 
-			fmt.Fprintf(conn, "LED_%s|%s\n", idSala, acao)
-			fmt.Println("💡 Comando enviado para a Lâmpada!")
+			if enviarLinha(fmt.Sprintf("LED_%s|%s", idSala, acao)) {
+				fmt.Println("💡 Comando enviado para a Lâmpada!")
+			} else {
+				fmt.Println("⚠️ Sem conexão com o Integrador. O comando não foi enviado.")
+			}
 
 		case "0":
 			fmt.Println("A desligar do sistema...")
@@ -192,7 +260,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 		mu.Lock()
 
 		// Telemetria UDP de temperatura.
-		if tipoMsg == "TLM" && partes[1] == "T" {
+		if tipoMsg == "TLM" && partes[1] == "T" && len(partes) >= 4 {
 			idSala := partes[2]
 			tempAtual, _ := strconv.ParseFloat(partes[3], 64)
 
@@ -201,11 +269,11 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 			sala.TemperaturaAtual = tempAtual
 			sala.UltimaLeituraTemp = time.Now()
 
-			avaliarModoAutomatico(idSala, sala, conn)
+			avaliarModoAutomatico(idSala, sala)
 		}
 
 		// Evento de acesso vindo da catraca.
-		if tipoMsg == "EVT" {
+		if tipoMsg == "EVT" && len(partes) >= 4 {
 			idSala := partes[2]
 			evento := partes[3]
 
@@ -267,7 +335,7 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 					// Se o modo automatico estava ativo, desativa por seguranca.
 					if sala.ModoAuto {
 						sala.ModoAuto = false
-						fmt.Fprintf(conn, "SYNC|%s|MANUAL\n", idSala)
+						enviarLinha(fmt.Sprintf("SYNC|%s|MANUAL", idSala))
 						fmt.Printf("🛑 MODO AUTOMÁTICO da [%s] foi DESATIVADO na rede por segurança.\n", idSala)
 					}
 				}
@@ -277,6 +345,10 @@ func ouvirRedeEProcessarLogica(conn net.Conn) {
 		}
 
 		mu.Unlock()
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("⚠️ Leitura da conexão com Integrador falhou: %v\n", err)
 	}
 }
 
@@ -306,7 +378,7 @@ func limparDispositivosInativos() {
 }
 
 // Aplica a regra de controle automatico do ar condicionado.
-func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
+func avaliarModoAutomatico(id string, sala *EstadoSala) {
 	if !sala.ModoAuto {
 		return
 	}
@@ -315,11 +387,11 @@ func avaliarModoAutomatico(id string, sala *EstadoSala, conn net.Conn) {
 	limiteInferior := sala.TemperaturaAlvo - 1.0
 
 	if sala.TemperaturaAtual >= limiteSuperior && !sala.ArLigado {
-		fmt.Fprintf(conn, "AC_%s|LIGAR\n", id)
+		enviarLinha(fmt.Sprintf("AC_%s|LIGAR", id))
 	}
 
 	if sala.TemperaturaAtual <= limiteInferior && sala.ArLigado {
-		fmt.Fprintf(conn, "AC_%s|DESLIGAR\n", id)
+		enviarLinha(fmt.Sprintf("AC_%s|DESLIGAR", id))
 	}
 }
 
