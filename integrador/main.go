@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -17,6 +18,15 @@ var (
 	muClientes sync.RWMutex
 	clientes   = make(map[net.Conn]bool)
 )
+
+func habilitarKeepAlive(conn net.Conn) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcpConn.SetKeepAlive(true)
+	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
+}
 
 func main() {
 	fmt.Println("🚀 Integrador Gateway (Broker) Iniciado!")
@@ -54,6 +64,12 @@ func listenSensoresUDP() {
 		}
 
 		mensagem := strings.TrimSpace(string(buffer[:n]))
+		partes := strings.Split(mensagem, "|")
+		if len(partes) < 3 {
+			fmt.Printf("⚠️ [Sensor UDP] Payload inválido descartado: %s\n", mensagem)
+			continue
+		}
+
 		fmt.Printf("📥 [Sensor UDP] Recebeu: %s\n", mensagem)
 
 		// Telemetria UDP segue para todos os clientes conectados.
@@ -75,12 +91,19 @@ func listenSensoresTCP() {
 		if err != nil {
 			continue
 		}
+		habilitarKeepAlive(conn)
 		// Cada sensor TCP fica isolado em uma goroutine para ler sua conexao.
 		go func(c net.Conn) {
 			defer c.Close()
 			scanner := bufio.NewScanner(c)
 			for scanner.Scan() {
 				mensagem := strings.TrimSpace(scanner.Text())
+				partes := strings.Split(mensagem, "|")
+				if len(partes) < 3 {
+					fmt.Printf("⚠️ [Sensor TCP] Payload inválido descartado: %s\n", mensagem)
+					continue
+				}
+
 				fmt.Printf("📥 [Sensor TCP] Recebeu: %s\n", mensagem)
 
 				// Eventos entram no fluxo de clientes com o prefixo EVT.
@@ -104,6 +127,7 @@ func listenAtuadoresTCP() {
 		if err != nil {
 			continue
 		}
+		habilitarKeepAlive(conn)
 		go manipularAtuador(conn)
 	}
 }
@@ -115,6 +139,9 @@ func manipularAtuador(conn net.Conn) {
 	for scanner.Scan() {
 		mensagem := strings.TrimSpace(scanner.Text())
 		partes := strings.Split(mensagem, "|")
+		if len(partes) == 0 || partes[0] == "" {
+			continue
+		}
 
 		// Se for uma mensagem de REGISTRO (Ex: REG|AC|SALA_1)
 		if partes[0] == "REG" && len(partes) >= 3 {
@@ -134,7 +161,7 @@ func manipularAtuador(conn net.Conn) {
 		}
 
 		// Se for um Recibo/Confirmação (ACK) ou ERRO do Atuador, repassa para o Cliente
-		if partes[0] == "ACK" || partes[0] == "ERRO" {
+		if (partes[0] == "ACK" || partes[0] == "ERRO") && len(partes) >= 3 {
 			fmt.Printf("📤 [Atuador -> Cliente] Repassando: %s\n", mensagem)
 			broadcastParaClientes(mensagem)
 		}
@@ -164,6 +191,7 @@ func listenClientesTCP() {
 		if err != nil {
 			continue
 		}
+		habilitarKeepAlive(conn)
 
 		// Mantem a conexao do cliente registrada para broadcast.
 		muClientes.Lock()

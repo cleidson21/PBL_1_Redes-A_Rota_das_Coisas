@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+func habilitarKeepAlive(conn net.Conn) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcpConn.SetKeepAlive(true)
+	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
+}
+
 func main() {
 	// Endereco do integrador TCP. Usa um padrao local quando a variavel nao vem do ambiente.
 	addrEnv := os.Getenv("SERVER_ADDR")
@@ -37,6 +46,7 @@ func main() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		habilitarKeepAlive(conn)
 
 		fmt.Printf("🪪 Sensor [%s] tipo [%s] iniciado! Enviando leituras para %s via TCP.\n", sensorID, sensorTipo, addrEnv)
 

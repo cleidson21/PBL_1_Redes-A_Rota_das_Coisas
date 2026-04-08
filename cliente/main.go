@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+func habilitarKeepAlive(conn net.Conn) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcpConn.SetKeepAlive(true)
+	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
+}
+
 // Estado consolidado de cada sala mantido pelo dashboard.
 type EstadoSala struct {
 	TemSensorTemp     bool
@@ -99,6 +108,7 @@ func manterConexaoComIntegrador(addr string) {
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		habilitarKeepAlive(conn)
 
 		setConexao(conn)
 		fmt.Println("✅ Ligado com sucesso ao Gateway Integrador!")

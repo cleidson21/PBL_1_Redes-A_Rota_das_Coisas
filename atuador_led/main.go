@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+func habilitarKeepAlive(conn net.Conn) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcpConn.SetKeepAlive(true)
+	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
+}
+
 func main() {
 	// Identidade logica do atuador enviada ao integrador.
 	atuadorID := os.Getenv("ATUADOR_ID")
@@ -34,6 +43,7 @@ func main() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
+		habilitarKeepAlive(conn)
 
 		fmt.Printf("⚙️  [%s] %s Iniciado! Conectado em %s\n", atuadorID, tipoAtuador, integradorAddr)
 
