@@ -8,25 +8,21 @@ import (
 )
 
 func main() {
-	// Endereco do integrador alvo. Mantem um padrao local quando a variavel nao vem do ambiente.
 	addrEnv := os.Getenv("SERVER_ADDR")
 	if addrEnv == "" {
 		addrEnv = "localhost:8080"
 	}
 
-	// Identificacao do sensor usada no payload UDP.
 	sensorID := os.Getenv("SENSOR_ID")
 	if sensorID == "" {
 		sensorID = "SALA_1"
 	}
 
-	// Tipo da grandeza emitida: T para temperatura, U para umidade.
 	sensorTipo := os.Getenv("SENSOR_TIPO")
 	if sensorTipo == "" {
 		sensorTipo = "T"
 	}
 
-	// Conexão UDP
 	servidorAddr, err := net.ResolveUDPAddr("udp", addrEnv)
 	if err != nil {
 		fmt.Printf("❌ Erro ao resolver endereço: %v\n", err)

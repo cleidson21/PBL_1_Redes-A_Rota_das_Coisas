@@ -10,11 +10,9 @@ import (
 )
 
 var (
-	// Conexoes TCP ativas dos atuadores, indexadas por ID logico.
 	muAtuadores sync.RWMutex
 	atuadores   = make(map[string]net.Conn)
 
-	// Conexoes TCP ativas dos clientes e dashboards.
 	muClientes sync.RWMutex
 	clientes   = make(map[net.Conn]bool)
 )
@@ -36,13 +34,11 @@ func main() {
 	fmt.Println("- TCP 8082: Atuadores (Ar Condicionado/Lâmpadas)")
 	fmt.Println("- TCP 8083: Clientes (Dashboards e Controladores)")
 
-	// Cada porta roda em uma goroutine para manter os listeners independentes.
 	go listenSensoresUDP()
 	go listenSensoresTCP()
 	go listenAtuadoresTCP()
 	go listenClientesTCP()
 
-	// Mantem o processo principal vivo enquanto os listeners executam.
 	select {}
 }
 
@@ -71,8 +67,6 @@ func listenSensoresUDP() {
 		}
 
 		fmt.Printf("📥 [Sensor UDP] Recebeu: %s\n", mensagem)
-
-		// Telemetria UDP segue para todos os clientes conectados.
 		broadcastParaClientes("TLM|" + mensagem)
 	}
 }
@@ -92,7 +86,6 @@ func listenSensoresTCP() {
 			continue
 		}
 		habilitarKeepAlive(conn)
-		// Cada sensor TCP fica isolado em uma goroutine para ler sua conexao.
 		go func(c net.Conn) {
 			defer c.Close()
 			scanner := bufio.NewScanner(c)
@@ -105,8 +98,6 @@ func listenSensoresTCP() {
 				}
 
 				fmt.Printf("📥 [Sensor TCP] Recebeu: %s\n", mensagem)
-
-				// Eventos entram no fluxo de clientes com o prefixo EVT.
 				broadcastParaClientes("EVT|" + mensagem)
 			}
 		}(conn)
@@ -148,10 +139,8 @@ func manipularAtuador(conn net.Conn) {
 			tipoAtuador := partes[1]
 			idSala := partes[2]
 
-			// Cria a chave única! Ex: AC_SALA_1 ou LED_SALA_1
 			atuadorID = fmt.Sprintf("%s_%s", tipoAtuador, idSala)
 
-			// Salva a conexão no Dicionário usando o Mutex para proteção
 			muAtuadores.Lock()
 			atuadores[atuadorID] = conn
 			muAtuadores.Unlock()
@@ -160,7 +149,6 @@ func manipularAtuador(conn net.Conn) {
 			continue
 		}
 
-		// Se for um Recibo/Confirmação (ACK) ou ERRO do Atuador, repassa para o Cliente
 		if (partes[0] == "ACK" || partes[0] == "ERRO") && len(partes) >= 3 {
 			fmt.Printf("📤 [Atuador -> Cliente] Repassando: %s\n", mensagem)
 			broadcastParaClientes(mensagem)
@@ -231,8 +219,8 @@ func manipularCliente(conn net.Conn) {
 				fmt.Printf("📤 [Cliente -> Atuador %s] Roteando comando: %s\n", idDestino, comando)
 				fmt.Fprintf(atuadorConn, "%s\n", comando)
 			} else {
-				fmt.Printf("⚠️ [Cliente] Tentou enviar comando para %s, mas ele está offline.\n", idDestino)
-				fmt.Fprintf(conn, "ERRO|GATEWAY|Atuador %s nao encontrado ou offline\n", idDestino)
+				fmt.Printf("⚠️ [Cliente] Atuador %s offline\n", idDestino)
+				fmt.Fprintf(conn, "ERRO|GATEWAY|Atuador %s offline\n", idDestino)
 			}
 		}
 	}
@@ -245,12 +233,21 @@ func manipularCliente(conn net.Conn) {
 	conn.Close()
 }
 
-// Broadcast para todos os clientes conectados.
+// Broadcast para todos os clientes conectados. (COM QoS GARANTIDO)
 func broadcastParaClientes(mensagem string) {
 	muClientes.RLock()
 	defer muClientes.RUnlock()
 
+	isTelemetria := strings.HasPrefix(mensagem, "TLM|")
+
 	for conn := range clientes {
-		fmt.Fprintf(conn, "%s\n", mensagem)
+		go func(clienteConn net.Conn, msg string, telemetria bool) {
+			clienteConn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+			_, err := fmt.Fprintf(clienteConn, "%s\n", msg)
+			if err != nil && telemetria {
+				return
+			}
+			clienteConn.SetWriteDeadline(time.Time{})
+		}(conn, mensagem, isTelemetria)
 	}
 }

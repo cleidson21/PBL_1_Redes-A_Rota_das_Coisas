@@ -18,25 +18,21 @@ func habilitarKeepAlive(conn net.Conn) {
 }
 
 func main() {
-	// Endereco do integrador TCP. Usa um padrao local quando a variavel nao vem do ambiente.
 	addrEnv := os.Getenv("SERVER_ADDR")
 	if addrEnv == "" {
 		addrEnv = "localhost:8081"
 	}
 
-	// Identificacao do sensor enviada junto com cada leitura.
 	sensorID := os.Getenv("SENSOR_ID")
 	if sensorID == "" {
 		sensorID = "CATRACA_ENTRADA"
 	}
 
-	// Tipo da leitura produzida por este sensor.
 	sensorTipo := os.Getenv("SENSOR_TIPO")
 	if sensorTipo == "" {
 		sensorTipo = "NFC"
 	}
 
-	// Lista de identificadores usados para simular passagens na catraca.
 	crachas := []string{"USER_4091", "USER_1192", "USER_5583", "USER_9944"}
 
 	for {

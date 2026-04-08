@@ -20,7 +20,6 @@ func habilitarKeepAlive(conn net.Conn) {
 }
 
 func main() {
-	// Identidade logica do atuador enviada ao integrador.
 	atuadorID := os.Getenv("ATUADOR_ID")
 	if atuadorID == "" {
 		atuadorID = "SALA_1"
@@ -31,7 +30,6 @@ func main() {
 		tipoAtuador = "LED"
 	}
 
-	// Endereco do integrador usado para registro e recebimento de comandos.
 	integradorAddr := os.Getenv("INTEGRADOR_ADDR")
 	if integradorAddr == "" {
 		integradorAddr = "localhost:8082"
@@ -53,17 +51,15 @@ func main() {
 
 		estadoAtual := "DESLIGADO"
 
-		// Canal para avisar a Goroutine de Heartbeat que deve morrer.
 		done := make(chan bool)
 
-		// Goroutine de Heartbeat: envia estado a cada 10 segundos.
 		go func() {
 			for {
 				select {
 				case <-time.After(10 * time.Second):
 					fmt.Fprintf(conn, "ACK|%s|%s|%s\n", tipoAtuador, atuadorID, estadoAtual)
 				case <-done:
-					log.Printf("🛑 Parando Heartbeat antigo do %s...\n", atuadorID)
+					log.Printf("Heartbeat stopped for %s\n", atuadorID)
 					return
 				}
 			}
@@ -89,7 +85,6 @@ func main() {
 			}
 		}
 
-		// SE CHEGOU AQUI, A CONEXÃO CAIU! Matamos a Goroutine de Heartbeat.
 		done <- true
 
 		if err := scanner.Err(); err != nil {
